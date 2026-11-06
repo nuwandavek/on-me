@@ -3,6 +3,7 @@ import { dollars, summarize, safePageUrl } from './lib/model.js';
 import { likeButton, syncLikeButtons } from './lib/likes.js';
 import {normalizeSettings,isMock,modelLabel} from './lib/settings.js';
 import {progressText} from './lib/progress.js';
+import {skippedSites,siteHostname} from './lib/sites.js';
 
 const $ = selector => document.querySelector(selector);
 const date = value => new Intl.DateTimeFormat(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }).format(value);
@@ -308,4 +309,40 @@ $('#remove-key').addEventListener('click',async () => {
   catch (error) { toast(error.message,true); }
 });
 loadSettings().catch(error => toast(`Could not load settings: ${error.message}`,true));
+async function renderSkippedSites() {
+  const stored = await chrome.storage.local.get('skippedSites');
+  const list = skippedSites(stored.skippedSites);
+  const container = $('#skipped-sites-list');container.replaceChildren();
+  if (!list.length) container.append(node('p','muted','No skipped websites.'));
+  for (const hostname of list) {
+    const row = node('div','skipped-site-row');
+    const button = node('button','','Remove');button.type = 'button';
+    button.setAttribute('aria-label',`Remove ${hostname} from skipped websites`);
+    button.addEventListener('click',async () => {
+      button.disabled = true;
+      try {
+        const result = await chrome.runtime.sendMessage({type:'CBM_SKIP_SITE',hostname,skip:false});
+        if (!result?.ok) throw new Error(result?.error || 'Could not update skipped websites.');
+        await renderSkippedSites();toast(`${hostname} enabled.`);
+      } catch (error) { toast(error.message,true);button.disabled = false; }
+    });
+    row.append(node('span','',hostname),button);container.append(row);
+  }
+}
+$('#skip-site-form').addEventListener('submit',async event => {
+  event.preventDefault();
+  const hostname = siteHostname($('#skip-hostname').value);
+  if (!hostname) { toast('Enter a valid website, such as youtube.com.',true);return; }
+  const button = $('#skip-site-form button');button.disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({type:'CBM_SKIP_SITE',hostname,skip:true});
+    if (!result?.ok) throw new Error(result?.error || 'Could not skip this website.');
+    $('#skip-hostname').value = '';await renderSkippedSites();toast(`${hostname} skipped.`);
+  } catch (error) { toast(error.message,true); }
+  finally { button.disabled = false; }
+});
+chrome.storage.onChanged.addListener((changes,area) => {
+  if (area === 'local' && changes.skippedSites) renderSkippedSites().catch(error => toast(error.message,true));
+});
+renderSkippedSites().catch(error => toast(`Could not load skipped websites: ${error.message}`,true));
 refresh();

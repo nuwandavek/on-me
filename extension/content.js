@@ -1,5 +1,25 @@
 (() => {
-  if (document.getElementById('cbm-extension-root')) return;
+  let teardown = null;
+  let revision = 0;
+  async function syncSite() {
+    const current = ++revision;
+    try {
+      const state = await chrome.runtime.sendMessage({type:'CBM_SITE_STATUS'});
+      if (current !== revision) return;
+      if (state?.enabled && !teardown) teardown = mount();
+      else if (!state?.enabled && teardown) { teardown();teardown = null; }
+    } catch {
+      // Stay inactive if the extension was reloaded or policy could not be read.
+      if (current === revision && teardown) { teardown();teardown = null; }
+    }
+  }
+  chrome.runtime.onMessage.addListener((message,sender,reply) => {
+    if (sender.id !== chrome.runtime.id || message?.type !== 'CBM_REFRESH_SITE_STATE') return;
+    syncSite().then(() => reply({ok:true}));return true;
+  });
+  function mount() {
+  if (document.getElementById('cbm-extension-root')) return () => {};
+  let disposed = false;
   const host = document.createElement('div');
   host.id = 'cbm-extension-root';
   host.style.cssText = 'all:initial!important;position:fixed!important;inset:0!important;pointer-events:none!important;z-index:2147483647!important;';
@@ -137,18 +157,19 @@
     veil.querySelector('.close').focus();
   }
 
-  chrome.runtime.onMessage.addListener((message,sender,reply) => {
+  const onComparison = (message,sender,reply) => {
     if (sender.id !== chrome.runtime.id || message?.type !== 'CBM_SHOW_COMPARISON') return;
     if (![message.original,message.result].every(value => typeof value === 'string' && /^data:image\/(png|jpeg|webp|gif|avif|bmp);base64,/i.test(value))) {
       reply({ok:false,error:'This comparison could not be displayed.'});return;
     }
     showComparison(message);reply({ok:true});
-  });
+  };
+  chrome.runtime.onMessage.addListener(onComparison);
 
   const visible = new Map();
-  const tracked = new WeakSet();
+  const tracked = new Set();
   let frame = null;
-  function schedule() { if (frame === null) frame = requestAnimationFrame(position); }
+  function schedule() { if (disposed) return;if (frame === null) frame = requestAnimationFrame(position); }
   function position() {
     frame = null;
     for (const [img, button] of visible) {
@@ -166,6 +187,7 @@
     }
   }
   const intersection = new IntersectionObserver(entries => {
+    if (disposed) return;
     for (const entry of entries) {
       const img = entry.target;
       if (entry.isIntersecting && !visible.has(img)) {
@@ -189,14 +211,29 @@
     img.addEventListener('load', schedule);
   }
   document.querySelectorAll('img').forEach(track);
-  new MutationObserver(mutations => {
+  const mutation = new MutationObserver(mutations => {
+    if (disposed) return;
     for (const mutation of mutations) for (const node of mutation.addedNodes) {
       if (node.nodeType !== 1 || node === host) continue;
       if (node.matches('img')) track(node);
       node.querySelectorAll('img').forEach(track);
     }
     schedule();
-  }).observe(document.documentElement, { childList:true, subtree:true, attributes:true, attributeFilter:['src','srcset','style','class','hidden'] });
+  });
+  mutation.observe(document.documentElement, { childList:true, subtree:true, attributes:true, attributeFilter:['src','srcset','style','class','hidden'] });
   addEventListener('scroll', schedule, { capture:true, passive:true });
   addEventListener('resize', schedule, { passive:true });
+  return () => {
+    disposed = true;
+    intersection.disconnect();resize.disconnect();mutation.disconnect();
+    removeEventListener('scroll',schedule,true);removeEventListener('resize',schedule);
+    if (frame !== null) cancelAnimationFrame(frame);
+    clearTimeout(noticeTimer);
+    for (const image of tracked) image.removeEventListener('load',schedule);
+    tracked.clear();visible.clear();
+    chrome.runtime.onMessage.removeListener(onComparison);
+    host.remove();
+  };
+  }
+  syncSite();
 })();

@@ -1,6 +1,7 @@
 import { get, getAll, finishGeneration, enqueueGeneration, toggleLike } from './lib/db.js';
 import { safePageUrl } from './lib/model.js';
 import {normalizeSettings} from './lib/settings.js';
+import {siteHostname,skippedSites,isSkippedSite} from './lib/sites.js';
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
 chrome.runtime.onInstalled.addListener(({ reason }) => {
@@ -30,6 +31,8 @@ chrome.runtime.onStartup.addListener(() => runJobs().catch(console.error));
 async function start(message,sender) {
   const pageUrl = safePageUrl(sender.tab?.url || message.pageUrl);
   if (!pageUrl) throw new Error('Try-on is available on regular websites.');
+  const policy = await chrome.storage.local.get('skippedSites');
+  if (isSkippedSite(pageUrl,policy.skippedSites) || isSkippedSite(sender.url,policy.skippedSites)) throw new Error('Try-ons are skipped on this website. You can enable it again in the sidebar.');
   const key = `${sender.tab.id}:${message.imageUrl}`;
   if (active.has(key)) return active.get(key);
   const task = (async () => {
@@ -73,7 +76,14 @@ async function start(message,sender) {
 
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (sender.id !== chrome.runtime.id || !message || typeof message.type !== 'string') return;
-  if (message.type === 'CBM_API_KEY' && sender.url === chrome.runtime.getURL('offscreen.html')) {
+  const ui = [chrome.runtime.getURL('sidepanel.html'),chrome.runtime.getURL('options.html')].includes(sender.url?.split('#')[0]);
+  if (message.type === 'CBM_SITE_STATUS' && (sender.tab || ui)) {
+    getSiteStatus(sender.tab || message.tabId,sender.tab ? sender.url : null).then(reply,error => reply({ok:false,error:error.message}));
+    return true;
+  } else if (message.type === 'CBM_SKIP_SITE' && ui) {
+    saveSkippedSite(message).then(reply,error => reply({ok:false,error:error.message}));
+    return true;
+  } else if (message.type === 'CBM_API_KEY' && sender.url === chrome.runtime.getURL('offscreen.html')) {
     chrome.storage.local.get('openaiApiKey').then(value => reply({apiKey:value.openaiApiKey || ''}),() => reply({apiKey:''}));
     return true;
   } else if (message.type === 'CBM_PUBLIC_CONFIG' && [chrome.runtime.getURL('sidepanel.html'),chrome.runtime.getURL('options.html')].includes(sender.url?.split('#')[0])) {
@@ -119,6 +129,8 @@ async function compareOnPage(message) {
   if (!record || record.status !== 'completed') throw new Error('This try-on is not ready yet.');
   const tab = await chrome.tabs.get(message.tabId);
   if (!safePageUrl(tab.url)) throw new Error('Open a shopping page to expand the comparison, or view it in history.');
+  const policy = await chrome.storage.local.get('skippedSites');
+  if (isSkippedSite(tab.url,policy.skippedSites)) throw new Error('This website is skipped. Enable it in the sidebar or view this comparison in the dashboard.');
   const original = await imageDataUrl(record.original);
   const result = record.result === record.original ? original : await imageDataUrl(record.result);
   try {
@@ -129,3 +141,42 @@ async function compareOnPage(message) {
     throw new Error('Refresh your shopping page, then click the preview again. You can also view it in history.');
   }
 }
+
+async function getSiteStatus(tabOrId,frameUrl) {
+  const tab = typeof tabOrId === 'number' ? await chrome.tabs.get(tabOrId) : tabOrId;
+  const url = safePageUrl(tab?.url);
+  const stored = await chrome.storage.local.get('skippedSites');
+  return {ok:true,hostname:url ? siteHostname(url) : null,skipped:isSkippedSite(url,stored.skippedSites),
+    enabled:Boolean(url && !isSkippedSite(url,stored.skippedSites) && !isSkippedSite(frameUrl,stored.skippedSites))};
+}
+
+let siteWrites = Promise.resolve();
+function saveSkippedSite(message) {
+  const task = siteWrites.catch(() => {}).then(async () => {
+    let hostname = siteHostname(message.hostname);
+    if (typeof message.tabId === 'number') {
+      const tab = await chrome.tabs.get(message.tabId);
+      if (!safePageUrl(tab.url)) throw new Error('Open a regular website first.');
+      const current = siteHostname(tab.url);
+      if (hostname && hostname !== current) throw new Error('The website changed. Click the button again.');
+      hostname = current;
+    }
+    if (!hostname) throw new Error('Enter a valid website, such as youtube.com.');
+    const stored = await chrome.storage.local.get('skippedSites');
+    let list = skippedSites(stored.skippedSites);
+    if (message.skip) list = skippedSites([...list,hostname]);
+    else list = list.filter(site => site !== hostname && !(typeof message.tabId === 'number' && hostname.endsWith(`.${site}`)));
+    await chrome.storage.local.set({skippedSites:list});
+    return {ok:true,hostname,sites:list};
+  });
+  siteWrites = task;
+  return task;
+}
+
+chrome.storage.onChanged.addListener((changes,area) => {
+  if (area !== 'local' || !changes.skippedSites) return;
+  // Tell every frame to re-read only its site policy. No image scans on skipped sites.
+  chrome.tabs.query({}).then(tabs => {
+    for (const tab of tabs) chrome.tabs.sendMessage(tab.id,{type:'CBM_REFRESH_SITE_STATE'}).catch(() => {});
+  }).catch(console.error);
+});

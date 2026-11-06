@@ -16,6 +16,8 @@ let windowId;
 let filter = 'all';
 let renderedState;
 let config = {settings:normalizeSettings(),hasKey:false};
+let activeSite = null;
+let siteRefresh = 0;
 const ready = chrome.windows.getCurrent().then(window => { windowId = window.id; });
 
 function node(tag, className, text) {
@@ -139,6 +141,30 @@ async function refresh() {
 }
 
 $('#dashboard').addEventListener('click',() => chrome.runtime.openOptionsPage());
+async function refreshActiveSite() {
+  const revision = ++siteRefresh;
+  await ready;
+  const [tab] = await chrome.tabs.query({active:true,windowId});
+  if (!tab) return;
+  const status = await chrome.runtime.sendMessage({type:'CBM_SITE_STATUS',tabId:tab.id});
+  if (revision !== siteRefresh) return;
+  activeSite = status?.ok ? {...status,tabId:tab.id} : null;
+  $('#current-site').textContent = activeSite?.hostname || 'Open a website';
+  $('#current-site').title = activeSite?.hostname || '';
+  $('#skip-site').disabled = !activeSite?.hostname;
+  $('#skip-site').textContent = activeSite?.skipped ? 'Enable on this website' : 'Skip this website';
+}
+$('#skip-site').addEventListener('click',async () => {
+  if (!activeSite?.hostname) return;
+  $('#skip-site').disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({type:'CBM_SKIP_SITE',tabId:activeSite.tabId,hostname:activeSite.hostname,skip:!activeSite.skipped});
+    if (!result?.ok) throw new Error(result?.error || 'Could not update this website.');
+    await refreshActiveSite();
+  } catch (cause) { error(cause.message);await refreshActiveSite(); }
+});
+chrome.tabs.onActivated.addListener(info => { if (info.windowId === windowId) refreshActiveSite().catch(cause => error(cause.message)); });
+chrome.tabs.onUpdated.addListener((tabId,change) => { if (tabId === activeSite?.tabId && (change.url || change.status === 'complete')) refreshActiveSite().catch(cause => error(cause.message)); });
 function setFilter(value,rerender = true) {
   filter = value;
   for (const name of ['all','liked']) {
@@ -152,6 +178,7 @@ $('#liked-filter').addEventListener('click',() => setFilter('liked'));
 channel.onmessage = refresh;
 chrome.storage.onChanged.addListener((changes,area) => {
   if ((area === 'session' && changes[`selection:${windowId}`]) || (area === 'local' && (changes.generationSettings || changes.openaiApiKey))) refresh();
+  if (area === 'local' && changes.skippedSites) refreshActiveSite().catch(cause => error(cause.message));
 });
 // A window focus event fires between pointerdown and click when returning from
 // the shopping page. Rebuilding here removes the button before its click fires.
@@ -161,3 +188,4 @@ const timer = setInterval(() => {
 },1000);
 addEventListener('beforeunload',() => { clearInterval(timer);urls.forEach(url => URL.revokeObjectURL(url));channel.close(); });
 refresh();
+refreshActiveSite().catch(cause => error(cause.message));

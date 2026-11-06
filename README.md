@@ -14,6 +14,7 @@ Defaults: **GPT Image 2.6 Flare**, low quality, low complexity. Mock mode is als
 ## Notes
 
 - Click a finished sidebar preview for a larger comparison.
+- **Skip this website** stops image buttons and scanning; manage the list in **Settings & costs**. YouTube is skipped by default.
 - Prompt: [`extension/prompts/try-on.txt`](extension/prompts/try-on.txt).
 - History, references, and API key stay in your Chrome profile. Real try-ons send the selected image and references to OpenAI.
 - Dashboard costs are usage-based estimates. Missing usage is marked unknown; requests are never automatically retried.

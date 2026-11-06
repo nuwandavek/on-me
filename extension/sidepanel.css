@@ -16,3 +16,5 @@ body{height:100dvh;overflow:hidden}header,footer{flex-shrink:0}main{min-height:0
 @media(max-width:300px){.when{font-size:7px}.details>div{gap:6px}}
 
 .waiting small{max-width:90%;text-align:center;line-height:1.6}
+
+.site-control{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.site-control>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:#929d81}.site-control>button{flex:0 0 auto;border:0;padding:3px 0;background:transparent;color:#7c886c;font-size:9px;text-decoration:underline;text-underline-offset:3px}.site-control>button:hover{color:#cd543c}.site-control>button:disabled{opacity:.4;cursor:default;text-decoration:none}
