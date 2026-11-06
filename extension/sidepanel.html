@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Clothes But Me — Fitting room</title>
+  <link rel="stylesheet" href="sidepanel.css">
+  <link rel="stylesheet" href="likes.css">
+  <script type="module" src="sidepanel.js"></script>
+</head>
+<body>
+  <header><div class="brand"><img src="icons/icon48.png" alt=""><span>clothes but me<span class="dot">.</span></span></div><span class="mode" id="mode-label">FLARE</span></header>
+  <main>
+    <div class="heading"><div><p class="eyebrow">YOUR FITTING ROOM</p><h1>Try-ons<span class="dot">.</span></h1></div></div>
+    <p id="activity" class="activity" role="status" aria-live="polite">Click a hanger on an image to start.</p>
+    <div class="panel-filters"><button id="all-filter" class="selected" type="button" aria-pressed="true">All try-ons</button><button id="liked-filter" type="button" aria-pressed="false">Liked <span id="liked-count">0</span></button></div>
+    <p id="panel-error" class="error" role="alert" hidden></p>
+    <section id="empty" class="empty"><img src="icons/icon128.png" alt=""><h2>Keep browsing.<br>We’ll keep your try-ons here.</h2><p>Click the little hanger on an image. Your preview will be ready in about 10 seconds.</p></section>
+    <div id="tryons" class="tryons" aria-label="Try-on previews"></div>
+  </main>
+  <footer><p id="provider-note">Using your saved reference photos.</p><button id="dashboard" class="dashboard" type="button">Go to dashboard</button><span class="footer-hint">History, reference photos & costs</span></footer>
+</body>
+</html>

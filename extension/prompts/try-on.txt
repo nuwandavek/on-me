@@ -1,0 +1,21 @@
+Create one photorealistic virtual try-on image.
+
+INPUT IMAGES
+- Image 1: the original clothing / shopping image selected by the user.
+- Images 2 onward: reference photos of the user. They show the same person and establish their identity, face, body proportions, skin tone, and hair.
+
+TASK
+Show the person from the reference photos wearing the clothing visible in Image 1. Transfer the clothing to the user; do not copy the identity or body of a model in the original image. But if possible keep the pose of the model.
+
+PRESERVE
+- The user's recognizable face, age, body proportions, skin tone, hairstyle, and distinguishing features.
+- The clothing's cut, color, pattern, material, texture, details, and visible branding.
+- Realistic fabric drape, fit, seams, lighting, shadows, and anatomical proportions.
+
+COMPOSITION
+Use the clearest suitable reference photo as the base pose and background. Frame the person so the selected clothing is clearly visible. If the original shows only one clothing item, preserve the user's other clothing where possible. If it shows a complete outfit, transfer the complete visible outfit. If clothing details are hidden, infer them conservatively.
+
+OUTPUT
+Return a single finished photograph. No comparison layout, text, watermarks, interface elements, extra people, or duplicated body parts.
+
+This is a visual approximation of appearance, not a prediction of exact size or physical fit.

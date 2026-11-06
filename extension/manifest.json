@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Clothes But Me",
+  "version": "0.1.0",
+  "description": "Your own fitting room, on any image. Save try-ons, references, and the places you found them.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "unlimitedStorage", "sidePanel", "offscreen"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "Open your fitting room" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "content_scripts": [{
+    "matches": ["http://*/*", "https://*/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle",
+    "all_frames": true
+  }],
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; img-src 'self' blob: data:;" }
+}
