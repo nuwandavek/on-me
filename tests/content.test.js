@@ -126,3 +126,13 @@ test('rejects comparisons that are not image data URLs',async () => {
   assert.deepEqual(got,[{ok:false,error:'This comparison could not be displayed.'}]);
   assert.equal(app.root(),null,'nothing left mounted');
 });
+
+test('"Go to dashboard" opens that try-on in the dashboard and closes the dialog',async () => {
+  const app = page({enabled:false});await tick();
+  app.show(2);
+  const button = app.root().querySelector('.library');
+  assert.equal(button.textContent.trim(),'Go to dashboard');
+  button.click();await tick();
+  assert.deepEqual(app.sent.at(-1),{type:'CBM_OPEN',id:'id2'});
+  assert.equal(app.root(),null,'dialog gone (and the off-site mount with it)');
+});

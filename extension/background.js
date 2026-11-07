@@ -95,7 +95,13 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true;
   } else if (message.type === 'CBM_OPEN') {
     const hash = typeof message.id === 'string' ? `#generation=${encodeURIComponent(message.id)}` : '';
-    chrome.tabs.create({ url: chrome.runtime.getURL(`options.html${hash}`) });
+    const windowId = sender.tab?.windowId;
+    chrome.tabs.create({ url: chrome.runtime.getURL(`options.html${hash}`), ...(windowId === undefined ? {} : {windowId}) });
+    // Going to the dashboard collapses the side panel, like the panel's own button does.
+    if (windowId !== undefined) {
+      chrome.sidePanel.close?.({windowId}).catch(() => {});
+      chrome.runtime.sendMessage({type:'CBM_CLOSE_PANEL',windowId}).catch(() => {});
+    }
     reply({ ok: true });
   } else if (message.type === 'CBM_PANEL_OPEN' && sender.tab) {
     chrome.sidePanel.open({ windowId: sender.tab.windowId })

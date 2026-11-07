@@ -1,6 +1,16 @@
-# On Me
+<p align="center"><img src="extension/icons/icon128.png" width="96" height="96" alt="On Me logo"></p>
 
-A Chrome extension for virtual try-ons, with a sidebar, saved comparisons, likes, and cost tracking.
+<h1 align="center">On Me</h1>
+
+<p align="center">A Chrome extension for virtual try-ons, with a sidebar, saved comparisons, likes, and cost tracking.</p>
+
+<p align="center"><img src="docs/screenshots/shopping-with-panel.jpg" width="800" alt="A product page with the hanger button highlighted (click the hanger to try it on) and the On Me side panel listing finished try-ons"></p>
+
+<p align="center">
+  <img src="docs/screenshots/comparison.jpg" width="265" alt="Comparison dialog on the shopping page: the original product photo next to the try-on">
+  <img src="docs/screenshots/dashboard.jpg" width="265" alt="Dashboard: try-ons grouped by date with likes and per-try-on cost">
+  <img src="docs/screenshots/stats.png" width="265" alt="Dashboard stats: try-on counts, top websites, and try-ons per week">
+</p>
 
 ## Setup
 

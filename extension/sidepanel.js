@@ -199,6 +199,10 @@ for (const button of document.querySelectorAll('[data-site-mode]')) button.addEv
 for (const button of document.querySelectorAll('[data-open]')) button.addEventListener('click',() => chrome.tabs.create({url:chrome.runtime.getURL(`options.html#${button.dataset.open}`)}).catch(cause => error(cause.message)));
 $('#liked-filter').addEventListener('click',() => setFilter('liked'));
 channel.onmessage = refresh;
+// Sent when "Go to dashboard" is clicked in a comparison on the page (for Chrome without sidePanel.close).
+chrome.runtime.onMessage.addListener((message,sender) => {
+  if (sender.id === chrome.runtime.id && message?.type === 'CBM_CLOSE_PANEL' && message.windowId === windowId) window.close();
+});
 chrome.storage.onChanged.addListener((changes,area) => {
   if ((area === 'session' && changes[`selection:${windowId}`]) || (area === 'local' && (changes.generationSettings || changes.openaiApiKey))) refresh();
   if (area === 'local' && (changes.skippedSites || changes.allowedSites || changes.siteMode)) refreshActiveSite().catch(cause => error(cause.message));
