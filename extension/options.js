@@ -279,9 +279,6 @@ function updateProvider() {
   const mock = settings.mode === 'mock';
   $('#provider-label').textContent = mock ? 'Mock mode' : hasApiKey ? modelLabel(settings.model) : 'Setup needed';
   $('#provider-note').textContent = mock ? 'Original image · 10-second delay' : hasApiKey ? `${settings.quality} quality · ${settings.complexity} complexity` : 'Add your API key in Settings & costs.';
-  $('#generation-note-text').textContent = mock ? 'Mock mode uses the original image as your try-on.' : !hasApiKey ? 'Add your OpenAI API key in Settings & costs to start making try-ons.' : !references.length ? 'Add a reference photo of you to start making try-ons.' : 'Your saved reference photos are ready. Click a hanger while you browse to start a try-on.';
-  $('#generation-note-action').textContent = !mock && hasApiKey && !references.length ? 'ADD PHOTOS' : 'SETTINGS';
-  $('#generation-note-action').href = !mock && hasApiKey && !references.length ? '#references' : '#settings';
 }
 async function loadSettings() {
   const config = await chrome.runtime.sendMessage({type:'CBM_PUBLIC_CONFIG'});
@@ -309,6 +306,45 @@ $('#remove-key').addEventListener('click',async () => {
   catch (error) { toast(error.message,true); }
 });
 loadSettings().catch(error => toast(`Could not load settings: ${error.message}`,true));
+let defaultPrompt = '';
+let promptMode = 'default';
+let customPrompt = '';
+function showPrompt() {
+  const custom = promptMode === 'custom';
+  for (const button of document.querySelectorAll('[data-prompt-mode]')) button.setAttribute('aria-checked',String(button.dataset.promptMode === promptMode));
+  $('#prompt-text').readOnly = !custom;
+  $('#prompt-text').value = custom ? customPrompt || defaultPrompt : defaultPrompt;
+  $('#prompt-actions').hidden = !custom;
+  $('#prompt-mode-note').textContent = custom ? 'New try-ons use your custom prompt.' : 'The default comes from prompts/try-on.txt. Switch to Custom to edit your own copy.';
+}
+async function loadPrompt() {
+  const [response,stored] = await Promise.all([fetch(chrome.runtime.getURL('prompts/try-on.txt')),chrome.storage.local.get(['promptMode','customPrompt'])]);
+  defaultPrompt = response.ok ? await response.text() : '';
+  customPrompt = typeof stored.customPrompt === 'string' ? stored.customPrompt : '';
+  promptMode = stored.promptMode === 'custom' && customPrompt.trim() ? 'custom' : 'default';
+  showPrompt();
+}
+for (const button of document.querySelectorAll('[data-prompt-mode]')) button.addEventListener('click',async () => {
+  if (button.dataset.promptMode === promptMode) return;
+  promptMode = button.dataset.promptMode;
+  try {
+    // Switching to Custom with nothing saved yet starts from a copy of the default.
+    if (promptMode === 'custom' && !customPrompt.trim()) customPrompt = defaultPrompt;
+    await chrome.storage.local.set({promptMode,customPrompt});
+    showPrompt();toast(promptMode === 'custom' ? 'Using your custom prompt.' : 'Using the default prompt.');
+  } catch (error) { toast(error.message,true); }
+});
+$('#prompt-form').addEventListener('submit',async event => {
+  event.preventDefault();
+  const text = $('#prompt-text').value;
+  if (!text.trim()) { toast('The prompt can’t be empty.',true);return; }
+  $('#save-prompt').disabled = true;
+  try { customPrompt = text;await chrome.storage.local.set({promptMode:'custom',customPrompt});toast('Custom prompt saved. New try-ons will use it.'); }
+  catch (error) { toast(error.message,true); }
+  finally { $('#save-prompt').disabled = false; }
+});
+$('#copy-default').addEventListener('click',() => { $('#prompt-text').value = defaultPrompt;$('#prompt-text').focus(); });
+loadPrompt().catch(error => toast(`Could not load prompt: ${error.message}`,true));
 async function renderSkippedSites() {
   const stored = await chrome.storage.local.get('skippedSites');
   const list = skippedSites(stored.skippedSites);

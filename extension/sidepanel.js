@@ -140,7 +140,11 @@ async function refresh() {
   finally { refreshing = false;if (refreshAgain) { refreshAgain = false;refresh(); } }
 }
 
-$('#dashboard').addEventListener('click',() => chrome.runtime.openOptionsPage());
+$('#dashboard').addEventListener('click',async () => {
+  try { await chrome.runtime.openOptionsPage(); } catch (cause) { error(cause.message);return; }
+  // Closing the side panel's own page dismisses the panel in this window.
+  window.close();
+});
 async function refreshActiveSite() {
   const revision = ++siteRefresh;
   await ready;
@@ -152,7 +156,8 @@ async function refreshActiveSite() {
   $('#current-site').textContent = activeSite?.hostname || 'Open a website';
   $('#current-site').title = activeSite?.hostname || '';
   $('#skip-site').disabled = !activeSite?.hostname;
-  $('#skip-site').textContent = activeSite?.skipped ? 'Enable on this website' : 'Skip this website';
+  $('#skip-site').classList.toggle('skipped',!!activeSite?.skipped);
+  $('#skip-label').textContent = activeSite?.skipped ? 'Enable on this website' : 'Skip this website';
 }
 $('#skip-site').addEventListener('click',async () => {
   if (!activeSite?.hostname) return;

@@ -41,14 +41,17 @@ async function start(message,sender) {
       await chrome.storage.session.set({[`selection:${sender.tab.windowId}`]:existing.id});
       await runJobs();return {ok:true,id:existing.id,pending:true};
     }
-    const [references,stored] = await Promise.all([getAll('references'),chrome.storage.local.get(['generationSettings','openaiApiKey'])]);
+    const [references,stored] = await Promise.all([getAll('references'),chrome.storage.local.get(['generationSettings','openaiApiKey','promptMode','customPrompt'])]);
     const settings = normalizeSettings(stored.generationSettings);
     if (settings.mode === 'openai' && !stored.openaiApiKey) throw new Error('Add your OpenAI API key in Dashboard → Settings & costs.');
     if (settings.mode === 'openai' && !references.length) throw new Error('Add a reference photo of you in your dashboard first.');
-    const promptResponse = await fetch(chrome.runtime.getURL('prompts/try-on.txt'));
-    if (!promptResponse.ok) throw new Error('Could not load prompts/try-on.txt.');
-    const prompt = await promptResponse.text();
-    if (!prompt.trim()) throw new Error('The try-on prompt file is empty.');
+    let prompt = stored.promptMode === 'custom' && typeof stored.customPrompt === 'string' ? stored.customPrompt : '';
+    if (!prompt.trim()) {
+      const promptResponse = await fetch(chrome.runtime.getURL('prompts/try-on.txt'));
+      if (!promptResponse.ok) throw new Error('Could not load prompts/try-on.txt.');
+      prompt = await promptResponse.text();
+    }
+    if (!prompt.trim()) throw new Error('The try-on prompt is empty.');
     const record = {
       id:crypto.randomUUID(),createdAt:Date.now(),status:'pending',stage:'queued',
       pageUrl,pageTitle:String(sender.tab.title || message.pageTitle || 'Untitled page').slice(0,300),
