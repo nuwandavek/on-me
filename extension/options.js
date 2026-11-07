@@ -4,6 +4,8 @@ import { likeButton, syncLikeButtons } from './lib/likes.js';
 import {normalizeSettings,isMock,modelLabel} from './lib/settings.js';
 import {progressText} from './lib/progress.js';
 import {skippedSites,siteHostname} from './lib/sites.js';
+import {icon} from './lib/icons.js';
+import {usageStats,topSites,weeklyCounts} from './lib/stats.js';
 
 const $ = selector => document.querySelector(selector);
 const date = value => new Intl.DateTimeFormat(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }).format(value);
@@ -44,7 +46,7 @@ function toast(message, error = false) {
 }
 function domain(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'Original page'; } }
 function sourceLink(record, className, title) {
-  const link = node('a', className, title || `${domain(record.pageUrl)} ↗`);
+  const link = node('a', className, title || domain(record.pageUrl));
   const safe = safePageUrl(record.pageUrl);
   if (safe) { link.href = safe;link.target = '_blank';link.rel = 'noopener noreferrer'; }
   return link;
@@ -74,6 +76,7 @@ async function refresh() {
     $('#history-count').textContent = generations.length;
     $('#failed-count').textContent = generations.filter(r => r.status === 'failed').length;
     $('#liked-count').textContent = generations.filter(r => r.liked).length;
+    renderStats();
     renderHistory();renderReferences();
     updateProvider();
     syncLikeButtons(generations);
@@ -84,6 +87,81 @@ async function refresh() {
     refreshing = false;
     if (queuedRefresh) { queuedRefresh = false;refresh(); }
   }
+}
+
+// Finder-style buckets: Today, Yesterday, Previous 7 Days, Previous 30 Days, then month (and year if not this one).
+function dateGroup(value,now = new Date()) {
+  const day = new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
+  const at = new Date(value);
+  if (value >= day) return 'Today';
+  if (value >= day - 864e5) return 'Yesterday';
+  if (value >= day - 7 * 864e5) return 'Previous 7 Days';
+  if (value >= day - 30 * 864e5) return 'Previous 30 Days';
+  return new Intl.DateTimeFormat(undefined,at.getFullYear() === now.getFullYear() ? {month:'long'} : {month:'long',year:'numeric'}).format(at);
+}
+
+// --- Stats -----------------------------------------------------------------
+const CHART_FONT = 'Avenir Next, Avenir, Segoe UI, Arial, sans-serif';
+const CHART_CONFIG = {
+  background:null,font:CHART_FONT,view:{stroke:null},
+  axis:{labelColor:'#7b856c',labelFontSize:10,titleColor:'#7b856c',domain:false,ticks:false,gridColor:'#e6e8df',labelPadding:8},
+};
+const chartViews = new Map();
+const chartTip = node('div','chart-tooltip');chartTip.hidden = true;document.body.append(chartTip);
+function chartTooltip(handler,event,item,value) {
+  if (!value || !event) { chartTip.hidden = true;return; }
+  chartTip.replaceChildren(...Object.entries(value).map(([key,val]) => { const row = node('div');row.append(node('span','',key),node('strong','',String(val)));return row; }));
+  chartTip.hidden = false;
+  chartTip.style.left = `${Math.min(event.clientX + 14,innerWidth - chartTip.offsetWidth - 8)}px`;chartTip.style.top = `${event.clientY + 14}px`;
+}
+async function drawChart(id,spec) {
+  const element = $(`#${id}`);
+  chartViews.get(id)?.finalize();chartViews.delete(id);
+  if (!globalThis.vega || !globalThis.vegaLite) { element.replaceChildren(node('p','chart-empty','Charts could not load.'));return; }
+  element.replaceChildren();
+  const compiled = vegaLite.compile({...spec,config:CHART_CONFIG,width:Math.max(220,element.clientWidth - 8),autosize:{type:'fit-x',contains:'padding'}}).spec;
+  // The interpreter evaluates Vega expressions without eval, which the extension CSP forbids.
+  const view = new vega.View(vega.parse(compiled,null,{ast:true}),{expr:vega.expressionInterpreter,renderer:'svg',container:element,hover:true});
+  view.tooltip(chartTooltip);chartViews.set(id,view);
+  await view.runAsync();
+}
+function statTile(label,value,note) {
+  const tile = node('div','stat-tile');tile.append(node('span','stat-label',label),node('strong','stat-value',value),node('span','stat-note',note || ''));return tile;
+}
+const WEEKDAYS = ['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'];
+function renderStats() {
+  const s = usageStats(generations,ledger);
+  const pct = value => value == null ? '—' : `${Math.round(value * 100)}%`;
+  $('#stat-tiles').replaceChildren(
+    statTile('Try-ons',String(s.total),`${s.last30} in the last 30 days`),
+    statTile('Success rate',pct(s.successRate),s.failed ? `${s.failed} need${s.failed === 1 ? 's' : ''} attention` : 'No failed try-ons'),
+    statTile('Liked',String(s.liked),s.completed ? `${pct(s.liked / s.completed)} of finished try-ons` : 'Tap the heart on a favorite'),
+    statTile('Websites',String(s.sites),s.favoriteDay == null ? 'Where you found things' : `Mostly on ${WEEKDAYS[s.favoriteDay]}`),
+    statTile('Typical wait',s.medianSeconds == null ? '—' : s.medianSeconds < 90 ? `${Math.round(s.medianSeconds)}s` : `${(s.medianSeconds / 60).toFixed(1)} min`,'Median real generation time'),
+    statTile('Avg cost',s.averageCost == null ? '—' : dollars(s.averageCost,true),'Per real try-on, estimated'),
+  );
+  if ($('#stats-view').hidden) return;
+  const sites = topSites(generations);
+  const table = $('#sites-table');table.replaceChildren();
+  for (const row of sites) { const tr = node('tr');tr.append(node('th','',row.site),node('td','',String(row.count)));table.append(tr); }
+  if (!sites.length) {
+    for (const id of ['sites-chart','weekly-chart']) { chartViews.get(id)?.finalize();chartViews.delete(id);$(`#${id}`).replaceChildren(node('p','chart-empty','No try-ons yet. Your stats fill in as you browse.')); }
+    return;
+  }
+  drawChart('sites-chart',{
+    height:sites.length * 34,data:{values:sites.map(row => ({Website:row.site,'Try-ons':row.count,other:row.other}))},
+    encoding:{y:{field:'Website',type:'nominal',sort:null,title:null,axis:{labelFontSize:11,labelColor:'#4b5940',labelLimit:150}},x:{field:'Try-ons',type:'quantitative',title:null,axis:null,scale:{nice:false}}},
+    layer:[
+      {mark:{type:'bar',cornerRadiusEnd:4,height:18},encoding:{color:{condition:{test:'datum.other',value:'#c9ccbd'},value:'#6f7f55'},tooltip:[{field:'Website'},{field:'Try-ons'}]}},
+      {mark:{type:'text',align:'left',dx:6,fontSize:11,fontWeight:600,color:'#4b5940'},encoding:{text:{field:'Try-ons'}}},
+    ],
+  }).catch(error => toast(`Could not draw chart: ${error.message}`,true));
+  const weeks = weeklyCounts(generations).map(row => ({Week:new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric'}).format(row.start),'Try-ons':row.count}));
+  drawChart('weekly-chart',{
+    height:170,data:{values:weeks},
+    mark:{type:'bar',cornerRadiusEnd:4,width:{band:.6},color:'#6f7f55'},
+    encoding:{x:{field:'Week',type:'ordinal',sort:null,title:null,axis:{labelAngle:0}},y:{field:'Try-ons',type:'quantitative',title:null,axis:{tickMinStep:1,grid:true,labelPadding:6}},tooltip:[{field:'Week',title:'Week of'},{field:'Try-ons'}]},
+  }).catch(error => toast(`Could not draw chart: ${error.message}`,true));
 }
 
 function renderHistory() {
@@ -98,7 +176,10 @@ function renderHistory() {
   const list = $('#history-list');list.replaceChildren();
   $('#empty-history').hidden = generations.length !== 0;
   $('#no-results').hidden = generations.length === 0 || records.length > 0;
+  const now = new Date();let group = '';
   for (const record of records) {
+    const recordGroup = dateGroup(record.createdAt,now);
+    if (recordGroup !== group) { group = recordGroup;list.append(node('h2','history-group',group)); }
     const article = node('article', 'generation');
     const open = node('button', 'generation-open');open.type = 'button';
     open.setAttribute('aria-label', `View try-on from ${domain(record.pageUrl)}`);
@@ -115,8 +196,9 @@ function renderHistory() {
     const cost = node('div', 'generation-cost', record.costUsd == null ? (record.status === 'pending' ? '—' : 'Unknown') : dollars(record.costUsd, true));
     cost.append(node('small', '', record.status === 'failed' ? 'Failed' : record.status === 'pending' ? 'Pending' : isMock(record) ? 'Mock · USD' : 'Est. USD'));
     const tools = node('div','generation-tools');
-    if (record.status === 'completed') tools.append(likeButton(record,{onChange:refresh,onError:message => toast(message,true)}));
     tools.append(cost);meta.append(info,tools);article.append(open, meta);
+    // Sits over the image pair, outside the open button so the two stay separate controls.
+    if (record.status === 'completed') article.append(likeButton(record,{onChange:refresh,onError:message => toast(message,true)}));
     if (record.status === 'failed') article.append(node('p', 'generation-error', record.error));
     list.append(article);
   }
@@ -132,7 +214,7 @@ function renderReferences() {
   for (const ref of references) {
     const figure = node('figure', 'reference-photo');const frame = node('div', 'reference-frame');
     const img = node('img');img.src = blobUrl(ref.blob, referenceUrls);img.alt = ref.name;
-    const deleteButton = node('button', 'reference-remove', '×');deleteButton.type = 'button';deleteButton.setAttribute('aria-label', `Remove ${ref.name}`);
+    const deleteButton = node('button', 'reference-remove');deleteButton.append(icon('close'));deleteButton.type = 'button';deleteButton.setAttribute('aria-label', `Remove ${ref.name}`);
     deleteButton.addEventListener('click', async () => {
       try { await remove('references', ref.id);await refresh();channel.postMessage('references');toast('Reference photo removed.'); }
       catch (error) { toast(error.message, true); }
@@ -140,8 +222,8 @@ function renderReferences() {
     frame.append(img, deleteButton);figure.append(frame, node('figcaption', '', ref.name));list.append(figure);
     const thumb = node('img');thumb.src = img.src;thumb.alt = '';sidebar.append(thumb);
   }
-  const caption = $('#reference-caption');
-  caption.replaceChildren(document.createTextNode(references.length ? `${references.length} photo${references.length === 1 ? '' : 's'} of you · Manage` : 'Add photos of you'));
+  $('#reference-caption').textContent = references.length ? `${references.length} photo${references.length === 1 ? '' : 's'} of you` : 'No photos yet';
+  $('#reference-manage').textContent = references.length ? 'Manage' : 'Add photos';
 }
 
 async function normalizePhoto(file) {
@@ -189,7 +271,7 @@ function openDetail(id, setHash = true) {
   revoke(detailUrls);
   const content = $('#detail-content');content.replaceChildren();
   const header = node('div', 'detail-header');const h = node('h2', '', record.imageAlt || record.pageTitle || 'Your try-on');h.id = 'detail-title';
-  const close = node('button', 'detail-close', '×');close.type = 'button';close.setAttribute('aria-label','Close comparison');close.addEventListener('click', () => $('#detail-dialog').close());header.append(h,close);
+  const close = node('button', 'detail-close');close.append(icon('close'));close.type = 'button';close.setAttribute('aria-label','Close comparison');close.addEventListener('click', () => $('#detail-dialog').close());header.append(h,close);
   const comparison = node('div','detail-comparison');
   for (const [label, blob] of [['Original',record.original],[isMock(record) ? 'Your try-on · mock' : 'Your try-on',record.result]]) {
     const figure = node('figure');figure.append(node('figcaption','',label),imageCell(blob,label,detailUrls,record.status === 'failed' ? 'Preview unavailable' : 'Preparing preview…'));comparison.append(figure);
@@ -199,16 +281,16 @@ function openDetail(id, setHash = true) {
     const progress = node('p','request-progress',progressText(record));progress.dataset.progressId = record.id;left.append(progress);
   }
   if (!isMock(record)) {
-    const request = node('details','request-details');request.append(node('summary','','Request details'));
+    const request = node('details','request-details');const summary = node('summary','','Request details');summary.prepend(icon('chevron'));request.append(summary);
     request.append(node('p','',record.submittedAt ? `API request started: ${date(record.submittedAt)}` : 'API request not started yet.'));
     if (record.requestId) request.append(node('p','',`OpenAI request: ${record.requestId}`));
     request.append(node('p','',`Client request: ${record.id}`));left.append(request);
   }
   const right = node('div');right.append(node('strong','',record.costUsd == null ? (record.status === 'pending' ? '—' : 'Unknown') : dollars(record.costUsd,true)),node('p','',record.costUsd == null ? 'Usage unavailable · excluded from total' : isMock(record) ? 'USD · no API charge' : 'USD · estimated from API usage'));info.append(left,right);
-  const actions = node('div','detail-actions');actions.append(sourceLink(record,'button primary','Visit original page ↗'));
+  const actions = node('div','detail-actions');const visit = sourceLink(record,'button primary','Visit original page');visit.append(icon('open'));actions.append(visit);
   if (record.status === 'completed') actions.append(likeButton(record,{onChange:refresh,onError:message => toast(message,true)}));
   if (record.result) {
-    const download = node('a','button','Download preview ↓');download.href = blobUrl(record.result,detailUrls);download.download = `clothes-but-me-${record.id.slice(0,8)}.${record.result.type.includes('png') ? 'png' : record.result.type.includes('webp') ? 'webp' : record.result.type.includes('avif') ? 'avif' : record.result.type.includes('gif') ? 'gif' : 'jpg'}`;actions.append(download);
+    const download = node('a','button','Download preview');download.append(icon('download'));download.href = blobUrl(record.result,detailUrls);download.download = `clothes-but-me-${record.id.slice(0,8)}.${record.result.type.includes('png') ? 'png' : record.result.type.includes('webp') ? 'webp' : record.result.type.includes('avif') ? 'avif' : record.result.type.includes('gif') ? 'gif' : 'jpg'}`;actions.append(download);
   }
   const deleteButton = node('button','delete-link','Delete try-on');deleteButton.type = 'button';deleteButton.addEventListener('click', () => confirmDelete(record.id));actions.append(deleteButton);
   content.append(header,comparison,info);
@@ -232,8 +314,9 @@ function confirmDelete(id) {
 
 function route() {
   const hash = location.hash.slice(1);
-  const view = ['references','settings'].includes(hash) ? hash : 'history';
+  const view = ['stats','references','settings','help'].includes(hash) ? hash : 'history';
   document.querySelectorAll('.view').forEach(section => { section.hidden = section.id !== `${view}-view`; });
+  if (view === 'stats') requestAnimationFrame(renderStats);
   document.querySelectorAll('nav a').forEach(a => { a.classList.toggle('active',a.dataset.view === view);if(a.dataset.view === view)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current'); });
   if (hash.startsWith('generation=') && !$('#detail-dialog').open) {
     try { openDetail(decodeURIComponent(hash.slice(11)),false); } catch { /* Invalid bookmark: show history. */ }
@@ -266,6 +349,7 @@ $('#export-costs').addEventListener('click',() => {
   const url = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));const a = node('a');a.href = url;a.download = 'clothes-but-me-costs.csv';a.click();setTimeout(() => URL.revokeObjectURL(url),1000);
 });
 addEventListener('hashchange',route);
+let resizeTimer;addEventListener('resize',() => { clearTimeout(resizeTimer);resizeTimer = setTimeout(() => { if (!$('#stats-view').hidden) renderStats(); },150); });
 addEventListener('visibilitychange',() => { if (!document.hidden)refresh(); });
 addEventListener('beforeunload',() => { revoke(historyUrls);revoke(referenceUrls);revoke(detailUrls);channel.close(); });
 const progressTimer = setInterval(() => {
@@ -278,7 +362,7 @@ addEventListener('beforeunload',() => clearInterval(progressTimer));
 function updateProvider() {
   const mock = settings.mode === 'mock';
   $('#provider-label').textContent = mock ? 'Mock mode' : hasApiKey ? modelLabel(settings.model) : 'Setup needed';
-  $('#provider-note').textContent = mock ? 'Original image · 10-second delay' : hasApiKey ? `${settings.quality} quality · ${settings.complexity} complexity` : 'Add your API key in Settings & costs.';
+  $('#provider-note').textContent = mock ? 'Original image · 10-second delay' : hasApiKey ? `${settings.quality} quality · ${settings.complexity} complexity` : 'Add your API key in Settings.';
 }
 async function loadSettings() {
   const config = await chrome.runtime.sendMessage({type:'CBM_PUBLIC_CONFIG'});

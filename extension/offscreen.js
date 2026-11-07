@@ -49,7 +49,7 @@ async function run(job) {
     } else {
       record.stage = 'authorizing';await updateGeneration(record);channel.postMessage('generations');
       const config = await withTimeout(() => chrome.runtime.sendMessage({type:'CBM_API_KEY'}),10000,'Could not connect to the extension. Reload it and try again; no API request was sent.');
-      if (!config?.apiKey) throw new Error('Add your OpenAI API key in Dashboard → Settings & costs.');
+      if (!config?.apiKey) throw new Error('Add your OpenAI API key in Dashboard → Settings.');
       record.stage = 'preparing';await updateGeneration(record);channel.postMessage('generations');
       const [original,...references] = await Promise.all([apiImage(record.original),...job.references.map(ref => apiImage(ref.blob))]);
       record.stage = 'sending';await updateGeneration(record);channel.postMessage('generations');

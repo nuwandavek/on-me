@@ -2,7 +2,7 @@ import { normalizeSettings } from './settings.js';
 import { PRICING, usageCost } from './pricing.js';
 
 export async function editImage({original,references,prompt,apiKey,settings,id,onSubmit = async () => {},fetchImpl = fetch,signal}) {
-  if (!apiKey) throw new Error('Add your OpenAI API key in Dashboard → Settings & costs.');
+  if (!apiKey) throw new Error('Add your OpenAI API key in Dashboard → Settings.');
   if (!references.length) throw new Error('Add at least one reference photo in your dashboard.');
   if (!prompt?.trim()) throw new Error('The try-on prompt file is empty.');
   const config = normalizeSettings(settings);
@@ -28,7 +28,7 @@ export async function editImage({original,references,prompt,apiKey,settings,id,o
   const billing = {usage,costUsd:usageCost(usage),costSource:'api-usage-estimate',pricing:{...PRICING,model:config.model},requestId};
   if (!response.ok) {
     const descriptions = {
-      401:'OpenAI rejected the API key. Update it in Settings & costs.',
+      401:'OpenAI rejected the API key. Update it in Settings.',
       403:'This API project does not have access to the selected image model. Check its permissions or verification.',
       429:'OpenAI rate limit or insufficient API credit. Check your API billing and try again later.',
     };

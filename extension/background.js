@@ -43,7 +43,7 @@ async function start(message,sender) {
     }
     const [references,stored] = await Promise.all([getAll('references'),chrome.storage.local.get(['generationSettings','openaiApiKey','promptMode','customPrompt'])]);
     const settings = normalizeSettings(stored.generationSettings);
-    if (settings.mode === 'openai' && !stored.openaiApiKey) throw new Error('Add your OpenAI API key in Dashboard → Settings & costs.');
+    if (settings.mode === 'openai' && !stored.openaiApiKey) throw new Error('Add your OpenAI API key in Dashboard → Settings.');
     if (settings.mode === 'openai' && !references.length) throw new Error('Add a reference photo of you in your dashboard first.');
     let prompt = stored.promptMode === 'custom' && typeof stored.customPrompt === 'string' ? stored.customPrompt : '';
     if (!prompt.trim()) {
