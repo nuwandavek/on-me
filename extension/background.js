@@ -1,7 +1,7 @@
 import { get, getAll, finishGeneration, enqueueGeneration, toggleLike } from './lib/db.js';
 import { safePageUrl } from './lib/model.js';
 import {normalizeSettings} from './lib/settings.js';
-import {siteHostname,skippedSites,isSkippedSite} from './lib/sites.js';
+import {siteHostname,skippedSites,allowedSites,isSiteOff,siteMode,policyListKey,SITE_POLICY_KEYS} from './lib/sites.js';
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
 chrome.runtime.onInstalled.addListener(({ reason }) => {
@@ -31,8 +31,8 @@ chrome.runtime.onStartup.addListener(() => runJobs().catch(console.error));
 async function start(message,sender) {
   const pageUrl = safePageUrl(sender.tab?.url || message.pageUrl);
   if (!pageUrl) throw new Error('Try-on is available on regular websites.');
-  const policy = await chrome.storage.local.get('skippedSites');
-  if (isSkippedSite(pageUrl,policy.skippedSites) || isSkippedSite(sender.url,policy.skippedSites)) throw new Error('Try-ons are skipped on this website. You can enable it again in the sidebar.');
+  const policy = await chrome.storage.local.get(SITE_POLICY_KEYS);
+  if (isSiteOff(pageUrl,policy) || (safePageUrl(sender.url) && isSiteOff(sender.url,policy))) throw new Error('Try-ons are off on this website. You can enable it in the sidebar.');
   const key = `${sender.tab.id}:${message.imageUrl}`;
   if (active.has(key)) return active.get(key);
   const task = (async () => {
@@ -109,6 +109,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   } else if (message.type === 'CBM_COMPARE' && sender.url === chrome.runtime.getURL('sidepanel.html')) {
     compareOnPage(message).then(reply, error => reply({ ok: false, error: error.message }));
     return true;
+  } else if (message.type === 'CBM_COMPARE_STEP' && sender.tab && typeof message.id === 'string' && [-1,1].includes(message.direction)) {
+    stepComparison(message,sender.tab.id).then(reply, error => reply({ ok: false, error: error.message }));
+    return true;
   } else if (message.type === 'CBM_TOGGLE_LIKE' && typeof message.id === 'string') {
     toggleLike(message.id).then(result => {
       changes.postMessage('likes');
@@ -132,25 +135,38 @@ async function compareOnPage(message) {
   if (!record || record.status !== 'completed') throw new Error('This try-on is not ready yet.');
   const tab = await chrome.tabs.get(message.tabId);
   if (!safePageUrl(tab.url)) throw new Error('Open a shopping page to expand the comparison, or view it in history.');
-  const policy = await chrome.storage.local.get('skippedSites');
-  if (isSkippedSite(tab.url,policy.skippedSites)) throw new Error('This website is skipped. Enable it in the sidebar or view this comparison in the dashboard.');
   const original = await imageDataUrl(record.original);
   const result = record.result === record.original ? original : await imageDataUrl(record.result);
+  const order = await comparisonOrder();const index = order.indexOf(record.id);
   try {
     return await chrome.tabs.sendMessage(tab.id, {
       type: 'CBM_SHOW_COMPARISON', id: record.id, original, result, liked:Boolean(record.liked), model:record.model,
+      position:index + 1, total:order.length, hasPrev:index > 0, hasNext:index >= 0 && index < order.length - 1,
     }, { frameId: 0 });
   } catch {
     throw new Error('Refresh your shopping page, then click the preview again. You can also view it in history.');
   }
 }
 
+// Finished try-ons, newest first: the same order as the side panel list.
+async function comparisonOrder() {
+  return (await getAll('generations')).filter(record => record.status === 'completed').sort((a,b) => b.createdAt - a.createdAt).map(record => record.id);
+}
+
+async function stepComparison(message,tabId) {
+  const order = await comparisonOrder();
+  const index = order.indexOf(message.id);
+  const id = index < 0 ? null : order[index + message.direction];
+  if (!id) throw new Error('No more try-ons in that direction.');
+  return compareOnPage({id,tabId});
+}
+
 async function getSiteStatus(tabOrId,frameUrl) {
   const tab = typeof tabOrId === 'number' ? await chrome.tabs.get(tabOrId) : tabOrId;
   const url = safePageUrl(tab?.url);
-  const stored = await chrome.storage.local.get('skippedSites');
-  return {ok:true,hostname:url ? siteHostname(url) : null,skipped:isSkippedSite(url,stored.skippedSites),
-    enabled:Boolean(url && !isSkippedSite(url,stored.skippedSites) && !isSkippedSite(frameUrl,stored.skippedSites))};
+  const stored = await chrome.storage.local.get(SITE_POLICY_KEYS);
+  return {ok:true,hostname:url ? siteHostname(url) : null,skipped:Boolean(url) && isSiteOff(url,stored),mode:siteMode(stored.siteMode),
+    enabled:Boolean(url && !isSiteOff(url,stored) && (!safePageUrl(frameUrl) || !isSiteOff(frameUrl,stored)))};
 }
 
 let siteWrites = Promise.resolve();
@@ -165,11 +181,16 @@ function saveSkippedSite(message) {
       hostname = current;
     }
     if (!hostname) throw new Error('Enter a valid website, such as youtube.com.');
-    const stored = await chrome.storage.local.get('skippedSites');
-    let list = skippedSites(stored.skippedSites);
-    if (message.skip) list = skippedSites([...list,hostname]);
+    // message.skip means "turn this site off". In "all" mode that adds to the skip list;
+    // in "some" mode it removes from the allow list (and the reverse to turn it on).
+    const stored = await chrome.storage.local.get(SITE_POLICY_KEYS);
+    const key = policyListKey(stored.siteMode);
+    const normalize = key === 'allowedSites' ? allowedSites : skippedSites;
+    const add = key === 'allowedSites' ? !message.skip : message.skip;
+    let list = normalize(stored[key]);
+    if (add) list = normalize([...list,hostname]);
     else list = list.filter(site => site !== hostname && !(typeof message.tabId === 'number' && hostname.endsWith(`.${site}`)));
-    await chrome.storage.local.set({skippedSites:list});
+    await chrome.storage.local.set({[key]:list});
     return {ok:true,hostname,sites:list};
   });
   siteWrites = task;
@@ -177,7 +198,7 @@ function saveSkippedSite(message) {
 }
 
 chrome.storage.onChanged.addListener((changes,area) => {
-  if (area !== 'local' || !changes.skippedSites) return;
+  if (area !== 'local' || !SITE_POLICY_KEYS.some(key => changes[key])) return;
   // Tell every frame to re-read only its site policy. No image scans on skipped sites.
   chrome.tabs.query({}).then(tabs => {
     for (const tab of tabs) chrome.tabs.sendMessage(tab.id,{type:'CBM_REFRESH_SITE_STATE'}).catch(() => {});

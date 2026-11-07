@@ -19,3 +19,16 @@ export function isSkippedSite(url,list) {
   const host = siteHostname(url);
   return Boolean(host && skippedSites(list).some(site => host === site || host.endsWith(`.${site}`)));
 }
+
+// "all": on everywhere except skippedSites. "some": off everywhere except allowedSites.
+export const siteMode = value => value === 'some' ? 'some' : 'all';
+export const allowedSites = value => skippedSites(Array.isArray(value) ? value : []);
+
+export function isSiteOff(url,policy = {}) {
+  if (siteMode(policy.siteMode) === 'some') return !isSkippedSite(url,allowedSites(policy.allowedSites));
+  return isSkippedSite(url,policy.skippedSites);
+}
+
+// The list the user edits in the current mode: sites turned off ("all") or turned on ("some").
+export const policyListKey = mode => siteMode(mode) === 'some' ? 'allowedSites' : 'skippedSites';
+export const SITE_POLICY_KEYS = Object.freeze(['siteMode','skippedSites','allowedSites']);

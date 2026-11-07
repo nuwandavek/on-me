@@ -1,4 +1,4 @@
-# Clothes But Me
+# On Me
 
 A Chrome extension for virtual try-ons, with a sidebar, saved comparisons, likes, and cost tracking.
 

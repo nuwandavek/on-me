@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFile} from 'node:fs/promises';
-import {siteHostname,skippedSites,isSkippedSite} from '../extension/lib/sites.js';
+import {siteHostname,skippedSites,isSkippedSite,isSiteOff,policyListKey} from '../extension/lib/sites.js';
 
 test('normalizes website addresses and rejects non-web URLs',() => {
   assert.equal(siteHostname(' https://WWW.YouTube.com/watch?v=abc '),'youtube.com');
@@ -26,6 +26,18 @@ test('skipping includes subdomains without blocking lookalike domains',() => {
   assert.equal(isSkippedSite('https://example.com.evil.test/',list),false);
   assert.equal(isSkippedSite('https://notexample.com/',list),false);
   assert.deepEqual(skippedSites(['www.EXAMPLE.com','example.com','shop.example.com']),['example.com','shop.example.com']);
+});
+
+test('site mode: on everywhere except skipped, or only on allowed sites',() => {
+  assert.equal(isSiteOff('https://www.youtube.com/'),true);
+  assert.equal(isSiteOff('https://zara.com/',{}),false);
+  const pick = {siteMode:'some',allowedSites:['zara.com'],skippedSites:['zara.com']};
+  assert.equal(isSiteOff('https://www.zara.com/item',pick),false);
+  assert.equal(isSiteOff('https://shop.zara.com/',pick),false);
+  assert.equal(isSiteOff('https://uniqlo.com/',pick),true);
+  assert.equal(isSiteOff('https://zara.com/',{siteMode:'some'}),true);
+  assert.equal(policyListKey('some'),'allowedSites');
+  assert.equal(policyListKey(undefined),'skippedSites');
 });
 
 const source = await readFile(new URL('../extension/content.js',import.meta.url),'utf8');
@@ -63,7 +75,7 @@ function contentHarness(enabled) {
 test('a skipped page performs no DOM scans and creates no extension UI',async () => {
   const app = contentHarness(false);await new Promise(resolve => setImmediate(resolve));
   assert.equal(app.metrics.created,0);assert.equal(app.metrics.scans,0);
-  assert.equal(app.listeners.size,1); // Only listens for policy changes.
+  assert.equal(app.listeners.size,2); // Only listens for policy changes and sidebar comparison requests.
 });
 
 test('skipping an open page disconnects watchers, and re-enabling resumes scanning',async () => {
@@ -72,7 +84,7 @@ test('skipping an open page disconnects watchers, and re-enabling resumes scanni
   app.setEnabled(false);await app.refresh();
   assert.equal(app.metrics.removed,1);assert.equal(app.metrics.disconnected,3);
   assert.deepEqual(app.metrics.removedEvents,['scroll','resize']);
-  assert.equal(app.listeners.size,1);
+  assert.equal(app.listeners.size,2);
   await app.refresh();assert.equal(app.metrics.scans,1);
   app.setEnabled(true);await app.refresh();assert.equal(app.metrics.scans,2);
 });

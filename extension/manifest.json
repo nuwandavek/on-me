@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Clothes But Me",
+  "name": "On Me",
   "version": "0.1.0",
   "description": "Your own fitting room, on any image. Save try-ons, references, and the places you found them.",
   "minimum_chrome_version": "116",

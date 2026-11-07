@@ -59,13 +59,27 @@ function render() {
   urls.forEach(url => URL.revokeObjectURL(url));urls = [];
   const list = $('#tryons');list.replaceChildren();
   const shown = filter === 'liked' ? records.filter(record => record.liked) : records;
-  $('#empty').hidden = shown.length > 0;
+  // Walk new users through key → photos → first try-on until a real try-on has finished.
+  const steps = {key:config.hasKey,photos:config.references > 0,where:Boolean(config.siteMode),try:records.some(record => record.status === 'completed' && !isMock(record))};
+  const setup = filter === 'all' && config.settings.mode !== 'mock' && !steps.try;
+  $('#setup').hidden = !setup;
+  const current = Object.keys(steps).find(key => !steps[key]);
+  for (const item of document.querySelectorAll('#setup [data-step]')) {
+    const key = item.dataset.step;
+    item.classList.toggle('done',steps[key]);item.classList.toggle('current',key === current);
+    item.querySelector('.step-action')?.toggleAttribute('hidden',steps[key]);
+  }
+  for (const button of document.querySelectorAll('[data-site-mode]')) button.setAttribute('aria-checked',String(button.dataset.siteMode === config.siteMode));
+  $('#setup [data-step="where"] .step-text span').textContent = config.siteMode === 'some' ? 'Only sites you enable. Turn one on from this panel.' : config.siteMode === 'all' ? 'Every website. Disable any from this panel.' : 'Show hangers on every website, or only ones you pick.';
+  $('#setup [data-step="photos"] .step-text span').textContent = config.references ? `${config.references} saved.` : 'A clear face photo and a full-body photo work best.';
+  $('#empty').hidden = setup || shown.length > 0;
+  $('#provider-note').hidden = setup;
   $('#empty h2').innerHTML = filter === 'liked' ? 'Your favorites<br>belong here.' : 'Keep browsing.<br>We’ll keep your try-ons here.';
   $('#empty p').textContent = filter === 'liked' ? 'Tap the heart on a try-on to save it to your likes.' : config.settings.mode === 'mock' ? 'Click a hanger on an image. Your mock preview will be ready in about 10 seconds.' : !config.hasKey ? 'Add your OpenAI API key and reference photos in the dashboard, then click a hanger on a shopping image.' : 'Click a hanger on an image. Keep browsing while your try-on is made.';
   $('#liked-count').textContent = records.filter(record => record.liked).length;
   const pending = records.filter(record => record.status === 'pending').length;
   const completed = records.filter(record => record.status === 'completed').length;
-  $('#activity').textContent = pending ? `${pending} try-on${pending === 1 ? '' : 's'} in progress. Keep browsing.` : completed ? `${completed} ready. Click a preview to expand it on the page.` : 'Click a hanger on an image to start.';
+  $('#activity').textContent = pending ? `${pending} try-on${pending === 1 ? '' : 's'} in progress. Keep browsing.` : completed ? `${completed} ready. Click a preview to expand it on the page.` : !$('#setup').hidden && !(config.hasKey && config.references) ? 'A few quick steps before your first try-on.' : 'Click a hanger on an image to start.';
   $('#activity').classList.toggle('busy', pending > 0);
   for (const record of shown) {
     const article = node('article', 'tryon');article.dataset.id = record.id;
@@ -127,8 +141,8 @@ async function refresh() {
   refreshing = true;
   try {
     await ready;
-    const [generations,state,publicConfig] = await Promise.all([getAll('generations'),chrome.storage.session.get(`selection:${windowId}`),chrome.runtime.sendMessage({type:'CBM_PUBLIC_CONFIG'})]);
-    config = {settings:normalizeSettings(publicConfig.settings),hasKey:publicConfig.hasKey};
+    const [generations,references,state,publicConfig,sitePolicy] = await Promise.all([getAll('generations'),getAll('references'),chrome.storage.session.get(`selection:${windowId}`),chrome.runtime.sendMessage({type:'CBM_PUBLIC_CONFIG'}),chrome.storage.local.get('siteMode')]);
+    config = {settings:normalizeSettings(publicConfig.settings),hasKey:publicConfig.hasKey,references:references.length,siteMode:sitePolicy.siteMode || null};
     $('#mode-label').textContent = config.settings.mode === 'mock' ? 'MOCK MODE' : !config.hasKey ? 'SETUP' : config.settings.model.endsWith('flare') ? 'FLARE' : 'SUNBURST';
     $('#provider-note').textContent = config.settings.mode === 'mock' ? 'Mock previews use the original image.' : !config.hasKey ? 'Add your API key in the dashboard to start.' : `${modelLabel(config.settings.model)} · ${config.settings.quality} quality`;
     const nextSelection = state[`selection:${windowId}`] || null;
@@ -156,8 +170,10 @@ async function refreshActiveSite() {
   $('#current-site').textContent = activeSite?.hostname || 'Open a website';
   $('#current-site').title = activeSite?.hostname || '';
   $('#skip-site').disabled = !activeSite?.hostname;
+  // In "all" mode an off site is the exception (highlighted); in "some" mode it's the norm.
   $('#skip-site').classList.toggle('skipped',!!activeSite?.skipped);
-  $('#skip-label').textContent = activeSite?.skipped ? 'Enable on this website' : 'Skip this website';
+  $('#skip-site').classList.toggle('pick-mode',activeSite?.mode === 'some');
+  $('#skip-label').textContent = activeSite?.skipped ? 'Enable on this website' : 'Disable on this website';
 }
 $('#skip-site').addEventListener('click',async () => {
   if (!activeSite?.hostname) return;
@@ -179,11 +195,15 @@ function setFilter(value,rerender = true) {
   if (rerender) render();
 }
 $('#all-filter').addEventListener('click',() => setFilter('all'));
+for (const button of document.querySelectorAll('[data-site-mode]')) button.addEventListener('click',() => chrome.storage.local.set({siteMode:button.dataset.siteMode}).catch(cause => error(cause.message)));
+// Opens the dashboard on the right page; the panel stays open so steps tick off as they're done.
+for (const button of document.querySelectorAll('[data-open]')) button.addEventListener('click',() => chrome.tabs.create({url:chrome.runtime.getURL(`options.html#${button.dataset.open}`)}).catch(cause => error(cause.message)));
 $('#liked-filter').addEventListener('click',() => setFilter('liked'));
 channel.onmessage = refresh;
 chrome.storage.onChanged.addListener((changes,area) => {
   if ((area === 'session' && changes[`selection:${windowId}`]) || (area === 'local' && (changes.generationSettings || changes.openaiApiKey))) refresh();
-  if (area === 'local' && changes.skippedSites) refreshActiveSite().catch(cause => error(cause.message));
+  if (area === 'local' && (changes.skippedSites || changes.allowedSites || changes.siteMode)) refreshActiveSite().catch(cause => error(cause.message));
+  if (area === 'local' && changes.siteMode) refresh();
 });
 // A window focus event fires between pointerdown and click when returning from
 // the shopping page. Rebuilding here removes the button before its click fires.

@@ -3,7 +3,7 @@ import { dollars, summarize, safePageUrl } from './lib/model.js';
 import { likeButton, syncLikeButtons } from './lib/likes.js';
 import {normalizeSettings,isMock,modelLabel} from './lib/settings.js';
 import {progressText} from './lib/progress.js';
-import {skippedSites,siteHostname} from './lib/sites.js';
+import {skippedSites,allowedSites,siteMode,siteHostname,SITE_POLICY_KEYS} from './lib/sites.js';
 import {icon} from './lib/icons.js';
 import {usageStats,topSites,weeklyCounts} from './lib/stats.js';
 
@@ -270,11 +270,13 @@ function openDetail(id, setHash = true) {
   if (setHash) history.replaceState(null, '', `#generation=${encodeURIComponent(id)}`);
   revoke(detailUrls);
   const content = $('#detail-content');content.replaceChildren();
-  const header = node('div', 'detail-header');const h = node('h2', '', record.imageAlt || record.pageTitle || 'Your try-on');h.id = 'detail-title';
+  const header = node('div', 'detail-header');const h = node('h2', '', record.pageTitle?.trim() || domain(record.pageUrl));h.id = 'detail-title';h.title = h.textContent;
   const close = node('button', 'detail-close');close.append(icon('close'));close.type = 'button';close.setAttribute('aria-label','Close comparison');close.addEventListener('click', () => $('#detail-dialog').close());header.append(h,close);
   const comparison = node('div','detail-comparison');
   for (const [label, blob] of [['Original',record.original],[isMock(record) ? 'Your try-on · mock' : 'Your try-on',record.result]]) {
-    const figure = node('figure');figure.append(node('figcaption','',label),imageCell(blob,label,detailUrls,record.status === 'failed' ? 'Preview unavailable' : 'Preparing preview…'));comparison.append(figure);
+    const cell = imageCell(blob,label,detailUrls,record.status === 'failed' ? 'Preview unavailable' : 'Preparing preview…');
+    if (blob === record.result && record.status === 'completed') cell.append(likeButton(record,{onChange:refresh,onError:message => toast(message,true)}));
+    const figure = node('figure');figure.append(node('figcaption','',label),cell);comparison.append(figure);
   }
   const info = node('div','detail-info');const left = node('div');left.append(node('p','',date(record.createdAt)),node('p','',`${record.referenceIds?.length || 0} reference photos associated with this try-on`),node('p','', isMock(record) ? 'Mock mode · the result is the original image' : `${modelLabel(record.model)} · ${record.settings?.quality || 'low'} quality`));
   if (record.status === 'pending') {
@@ -288,9 +290,8 @@ function openDetail(id, setHash = true) {
   }
   const right = node('div');right.append(node('strong','',record.costUsd == null ? (record.status === 'pending' ? '—' : 'Unknown') : dollars(record.costUsd,true)),node('p','',record.costUsd == null ? 'Usage unavailable · excluded from total' : isMock(record) ? 'USD · no API charge' : 'USD · estimated from API usage'));info.append(left,right);
   const actions = node('div','detail-actions');const visit = sourceLink(record,'button primary','Visit original page');visit.append(icon('open'));actions.append(visit);
-  if (record.status === 'completed') actions.append(likeButton(record,{onChange:refresh,onError:message => toast(message,true)}));
   if (record.result) {
-    const download = node('a','button','Download preview');download.append(icon('download'));download.href = blobUrl(record.result,detailUrls);download.download = `clothes-but-me-${record.id.slice(0,8)}.${record.result.type.includes('png') ? 'png' : record.result.type.includes('webp') ? 'webp' : record.result.type.includes('avif') ? 'avif' : record.result.type.includes('gif') ? 'gif' : 'jpg'}`;actions.append(download);
+    const download = node('a','button','Download preview');download.append(icon('download'));download.href = blobUrl(record.result,detailUrls);download.download = `on-me-${record.id.slice(0,8)}.${record.result.type.includes('png') ? 'png' : record.result.type.includes('webp') ? 'webp' : record.result.type.includes('avif') ? 'avif' : record.result.type.includes('gif') ? 'gif' : 'jpg'}`;actions.append(download);
   }
   const deleteButton = node('button','delete-link','Delete try-on');deleteButton.type = 'button';deleteButton.addEventListener('click', () => confirmDelete(record.id));actions.append(deleteButton);
   content.append(header,comparison,info);
@@ -346,7 +347,7 @@ for (const type of ['dragleave','drop']) $('#dropzone').addEventListener(type,e 
 $('#export-costs').addEventListener('click',() => {
   const rows = [['generation_id','created_at','model','cost_usd','cost_source','usage_json','pricing_json','request_id','status'],...ledger.map(row => [row.id,new Date(row.createdAt).toISOString(),row.model,row.costUsd ?? '',row.costSource,JSON.stringify(row.usage),JSON.stringify(row.pricing),row.requestId || '',row.status || 'completed'])];
   const csv = rows.map(row => row.map(value => `"${String(value ?? '').replaceAll('"','""')}"`).join(',')).join('\r\n');
-  const url = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));const a = node('a');a.href = url;a.download = 'clothes-but-me-costs.csv';a.click();setTimeout(() => URL.revokeObjectURL(url),1000);
+  const url = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));const a = node('a');a.href = url;a.download = 'on-me-costs.csv';a.click();setTimeout(() => URL.revokeObjectURL(url),1000);
 });
 addEventListener('hashchange',route);
 let resizeTimer;addEventListener('resize',() => { clearTimeout(resizeTimer);resizeTimer = setTimeout(() => { if (!$('#stats-view').hidden) renderStats(); },150); });
@@ -429,40 +430,52 @@ $('#prompt-form').addEventListener('submit',async event => {
 });
 $('#copy-default').addEventListener('click',() => { $('#prompt-text').value = defaultPrompt;$('#prompt-text').focus(); });
 loadPrompt().catch(error => toast(`Could not load prompt: ${error.message}`,true));
+// In "all" mode the list holds sites turned off; in "some" mode it holds sites turned on.
+// CBM_SKIP_SITE's `skip` always means "turn this site off", whichever list that touches.
 async function renderSkippedSites() {
-  const stored = await chrome.storage.local.get('skippedSites');
-  const list = skippedSites(stored.skippedSites);
+  const stored = await chrome.storage.local.get(SITE_POLICY_KEYS);
+  const pick = siteMode(stored.siteMode) === 'some';
+  for (const button of document.querySelectorAll('[data-site-mode]')) button.setAttribute('aria-checked',String(button.dataset.siteMode === (pick ? 'some' : 'all')));
+  $('#site-list-title').textContent = pick ? 'Allowed websites' : 'Skipped websites';
+  $('#site-list-help').textContent = pick ? 'Image buttons appear only on these websites. Each entry also includes its subdomains.' : 'No image buttons or image scanning on these websites. Each entry also includes its subdomains.';
+  $('#skip-hostname').setAttribute('aria-label',pick ? 'Website to allow' : 'Website to skip');
+  const list = pick ? allowedSites(stored.allowedSites) : skippedSites(stored.skippedSites);
   const container = $('#skipped-sites-list');container.replaceChildren();
-  if (!list.length) container.append(node('p','muted','No skipped websites.'));
+  if (!list.length) container.append(node('p','muted',pick ? 'No websites yet. Add one here, or enable it from the sidebar.' : 'No skipped websites.'));
   for (const hostname of list) {
     const row = node('div','skipped-site-row');
     const button = node('button','','Remove');button.type = 'button';
-    button.setAttribute('aria-label',`Remove ${hostname} from skipped websites`);
+    button.setAttribute('aria-label',`Remove ${hostname} from ${pick ? 'allowed' : 'skipped'} websites`);
     button.addEventListener('click',async () => {
       button.disabled = true;
       try {
-        const result = await chrome.runtime.sendMessage({type:'CBM_SKIP_SITE',hostname,skip:false});
-        if (!result?.ok) throw new Error(result?.error || 'Could not update skipped websites.');
-        await renderSkippedSites();toast(`${hostname} enabled.`);
+        const result = await chrome.runtime.sendMessage({type:'CBM_SKIP_SITE',hostname,skip:pick});
+        if (!result?.ok) throw new Error(result?.error || 'Could not update websites.');
+        await renderSkippedSites();toast(`${hostname} ${pick ? 'disabled' : 'enabled'}.`);
       } catch (error) { toast(error.message,true);button.disabled = false; }
     });
     row.append(node('span','',hostname),button);container.append(row);
   }
 }
+for (const button of document.querySelectorAll('[data-site-mode]')) button.addEventListener('click',async () => {
+  try { await chrome.storage.local.set({siteMode:button.dataset.siteMode});await renderSkippedSites(); }
+  catch (error) { toast(error.message,true); }
+});
 $('#skip-site-form').addEventListener('submit',async event => {
   event.preventDefault();
   const hostname = siteHostname($('#skip-hostname').value);
   if (!hostname) { toast('Enter a valid website, such as youtube.com.',true);return; }
   const button = $('#skip-site-form button');button.disabled = true;
   try {
-    const result = await chrome.runtime.sendMessage({type:'CBM_SKIP_SITE',hostname,skip:true});
-    if (!result?.ok) throw new Error(result?.error || 'Could not skip this website.');
-    $('#skip-hostname').value = '';await renderSkippedSites();toast(`${hostname} skipped.`);
+    const pick = siteMode((await chrome.storage.local.get('siteMode')).siteMode) === 'some';
+    const result = await chrome.runtime.sendMessage({type:'CBM_SKIP_SITE',hostname,skip:!pick});
+    if (!result?.ok) throw new Error(result?.error || 'Could not update websites.');
+    $('#skip-hostname').value = '';await renderSkippedSites();toast(`${hostname} ${pick ? 'enabled' : 'skipped'}.`);
   } catch (error) { toast(error.message,true); }
   finally { button.disabled = false; }
 });
 chrome.storage.onChanged.addListener((changes,area) => {
-  if (area === 'local' && changes.skippedSites) renderSkippedSites().catch(error => toast(error.message,true));
+  if (area === 'local' && SITE_POLICY_KEYS.some(key => changes[key])) renderSkippedSites().catch(error => toast(error.message,true));
 });
 renderSkippedSites().catch(error => toast(`Could not load skipped websites: ${error.message}`,true));
 refresh();
