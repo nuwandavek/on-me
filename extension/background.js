@@ -1,7 +1,8 @@
 import { get, getAll, finishGeneration, enqueueGeneration, toggleLike } from './lib/db.js';
 import { safePageUrl } from './lib/model.js';
 import {normalizeSettings} from './lib/settings.js';
-import {siteHostname,skippedSites,allowedSites,isSiteOff,siteMode,policyListKey,SITE_POLICY_KEYS} from './lib/sites.js';
+import {siteHostname,isSiteOff,siteMode,updateSiteList,SITE_POLICY_KEYS} from './lib/sites.js';
+import {comparisonOrder,comparisonPlace,stepTarget} from './lib/comparisons.js';
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
 chrome.runtime.onInstalled.addListener(({ reason }) => {
@@ -137,26 +138,19 @@ async function compareOnPage(message) {
   if (!safePageUrl(tab.url)) throw new Error('Open a shopping page to expand the comparison, or view it in history.');
   const original = await imageDataUrl(record.original);
   const result = record.result === record.original ? original : await imageDataUrl(record.result);
-  const order = await comparisonOrder();const index = order.indexOf(record.id);
+  const place = comparisonPlace(comparisonOrder(await getAll('generations')),record.id);
   try {
     return await chrome.tabs.sendMessage(tab.id, {
       type: 'CBM_SHOW_COMPARISON', id: record.id, original, result, liked:Boolean(record.liked), model:record.model,
-      position:index + 1, total:order.length, hasPrev:index > 0, hasNext:index >= 0 && index < order.length - 1,
+      ...place,
     }, { frameId: 0 });
   } catch {
     throw new Error('Refresh your shopping page, then click the preview again. You can also view it in history.');
   }
 }
 
-// Finished try-ons, newest first: the same order as the side panel list.
-async function comparisonOrder() {
-  return (await getAll('generations')).filter(record => record.status === 'completed').sort((a,b) => b.createdAt - a.createdAt).map(record => record.id);
-}
-
 async function stepComparison(message,tabId) {
-  const order = await comparisonOrder();
-  const index = order.indexOf(message.id);
-  const id = index < 0 ? null : order[index + message.direction];
+  const id = stepTarget(comparisonOrder(await getAll('generations')),message.id,message.direction);
   if (!id) throw new Error('No more try-ons in that direction.');
   return compareOnPage({id,tabId});
 }
@@ -184,12 +178,7 @@ function saveSkippedSite(message) {
     // message.skip means "turn this site off". In "all" mode that adds to the skip list;
     // in "some" mode it removes from the allow list (and the reverse to turn it on).
     const stored = await chrome.storage.local.get(SITE_POLICY_KEYS);
-    const key = policyListKey(stored.siteMode);
-    const normalize = key === 'allowedSites' ? allowedSites : skippedSites;
-    const add = key === 'allowedSites' ? !message.skip : message.skip;
-    let list = normalize(stored[key]);
-    if (add) list = normalize([...list,hostname]);
-    else list = list.filter(site => site !== hostname && !(typeof message.tabId === 'number' && hostname.endsWith(`.${site}`)));
+    const {key,list} = updateSiteList(stored,hostname,{turnOff:Boolean(message.skip),fromTab:typeof message.tabId === 'number'});
     await chrome.storage.local.set({[key]:list});
     return {ok:true,hostname,sites:list};
   });

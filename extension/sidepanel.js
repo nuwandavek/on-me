@@ -3,6 +3,7 @@ import { safePageUrl } from './lib/model.js';
 import { likeButton } from './lib/likes.js';
 import {normalizeSettings,isMock,modelLabel} from './lib/settings.js';
 import {progressText} from './lib/progress.js';
+import {setupState} from './lib/setup.js';
 
 const $ = selector => document.querySelector(selector);
 const channel = new BroadcastChannel('cbm-data');
@@ -60,10 +61,8 @@ function render() {
   const list = $('#tryons');list.replaceChildren();
   const shown = filter === 'liked' ? records.filter(record => record.liked) : records;
   // Walk new users through key → photos → first try-on until a real try-on has finished.
-  const steps = {key:config.hasKey,photos:config.references > 0,where:Boolean(config.siteMode),try:records.some(record => record.status === 'completed' && !isMock(record))};
-  const setup = filter === 'all' && config.settings.mode !== 'mock' && !steps.try;
+  const {steps,visible:setup,current} = setupState(config,records,filter);
   $('#setup').hidden = !setup;
-  const current = Object.keys(steps).find(key => !steps[key]);
   for (const item of document.querySelectorAll('#setup [data-step]')) {
     const key = item.dataset.step;
     item.classList.toggle('done',steps[key]);item.classList.toggle('current',key === current);

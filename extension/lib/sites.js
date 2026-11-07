@@ -32,3 +32,16 @@ export function isSiteOff(url,policy = {}) {
 // The list the user edits in the current mode: sites turned off ("all") or turned on ("some").
 export const policyListKey = mode => siteMode(mode) === 'some' ? 'allowedSites' : 'skippedSites';
 export const SITE_POLICY_KEYS = Object.freeze(['siteMode','skippedSites','allowedSites']);
+
+// Turn one site on or off under the current mode. Returns the storage key and its new list.
+// fromTab: the request came from the open page, so a matching parent entry
+// (e.g. zara.com for shop.zara.com) is removed too; otherwise the click would do nothing.
+export function updateSiteList(stored,hostname,{turnOff,fromTab = false}) {
+  const key = policyListKey(stored.siteMode);
+  const normalize = key === 'allowedSites' ? allowedSites : skippedSites;
+  const add = key === 'allowedSites' ? !turnOff : turnOff;
+  let list = normalize(stored[key]);
+  if (add) list = normalize([...list,hostname]);
+  else list = list.filter(site => site !== hostname && !(fromTab && hostname.endsWith(`.${site}`)));
+  return {key,list};
+}

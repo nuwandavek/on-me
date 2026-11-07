@@ -1,4 +1,12 @@
 (() => {
+  // After the extension is reloaded, this old copy of the script stays on open pages but
+  // loses chrome.runtime. Turn that into one clear instruction instead of a TypeError.
+  const RELOADED = 'The extension was reloaded. Refresh this page to try again.';
+  async function send(message) {
+    if (!globalThis.chrome?.runtime?.id) throw new Error(RELOADED);
+    try { return await chrome.runtime.sendMessage(message); }
+    catch (error) { throw String(error?.message).includes('Extension context invalidated') ? new Error(RELOADED) : error; }
+  }
   let teardown = null;
   // True while mounted only to show a comparison on a site where try-ons are off.
   let dialogOnly = false;
@@ -6,7 +14,7 @@
   async function syncSite() {
     const current = ++revision;
     try {
-      const state = await chrome.runtime.sendMessage({type:'CBM_SITE_STATUS'});
+      const state = await send({type:'CBM_SITE_STATUS'});
       if (current !== revision) return;
       if (state?.enabled && (!teardown || dialogOnly)) { teardown?.();dialogOnly = false;teardown = mount(); }
       else if (!state?.enabled && teardown && !dialogOnly) { teardown();teardown = null; }
@@ -24,8 +32,10 @@
   chrome.runtime.onMessage.addListener((message,sender,reply) => {
     if (sender.id !== chrome.runtime.id || message?.type !== 'CBM_SHOW_COMPARISON' || teardown) return;
     dialogOnly = true;
-    teardown = mount({scan:false,onClose:() => { if (dialogOnly) { teardown?.();teardown = null;dialogOnly = false; } }});
-    teardown.show(message,sender,reply);
+    const unmount = () => { if (dialogOnly) { teardown?.();teardown = null;dialogOnly = false; } };
+    teardown = mount({scan:false,onClose:unmount});
+    // A rejected comparison opens no dialog, so nothing would ever close this mount.
+    teardown.show(message,sender,response => { if (!response?.ok) unmount();reply(response); });
   });
   function mount({scan = true,onClose} = {}) {
   if (document.getElementById('cbm-extension-root')) return Object.assign(() => {},{show:(m,s,reply) => reply({ok:false,error:'This comparison could not be displayed.'})});
@@ -101,7 +111,7 @@
 
   async function tryOn(img, button) {
     if (running.has(img)) {
-      chrome.runtime.sendMessage({type:'CBM_PANEL_OPEN'}).then(response => {
+      send({type:'CBM_PANEL_OPEN'}).then(response => {
         if (!response?.ok) showError(response?.error || 'Could not open the sidebar.');
       }).catch(error => showError(error.message));
       return;
@@ -109,13 +119,13 @@
     running.add(img);button.classList.add('busy');button.setAttribute('aria-busy','true');
     button.querySelector('span').textContent = 'Trying on…';
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await send({
         type:'CBM_TRY_ON', imageUrl:img.currentSrc || img.src, snapshot:capture(img),
         imageAlt:img.alt, pageUrl:location.href, pageTitle:document.title,
       });
       if (!response?.ok) throw new Error(response?.error || 'Unable to save this try-on. Please try again.');
     } catch (error) {
-      showError(error.message.includes('Extension context invalidated') ? 'The extension was reloaded. Refresh this page to try again.' : error.message);
+      showError(error.message);
     } finally {
       running.delete(img);button.classList.remove('busy');button.removeAttribute('aria-busy');
       button.querySelector('span').textContent = 'Try on';
@@ -143,7 +153,7 @@
       if (button.hidden || button.disabled) return;
       button.disabled = true;
       try {
-        const result = await chrome.runtime.sendMessage({type:'CBM_COMPARE_STEP',id:message.id,direction});
+        const result = await send({type:'CBM_COMPARE_STEP',id:message.id,direction});
         if (!result?.ok) throw new Error(result?.error || 'Could not open that try-on.');
         const next = currentDialog?.querySelector(direction < 0 ? '.prev' : '.next');
         (next && !next.hidden ? next : currentDialog?.querySelector('.close'))?.focus();
@@ -163,7 +173,7 @@
     like.addEventListener('click',async () => {
       like.disabled = true;
       try {
-        const result = await chrome.runtime.sendMessage({type:'CBM_TOGGLE_LIKE',id:message.id});
+        const result = await send({type:'CBM_TOGGLE_LIKE',id:message.id});
         if (!result?.ok) throw new Error(result?.error || 'Could not save your like.');
         updateLike(result.liked);
       } catch (error) { showError(error.message); }
@@ -172,7 +182,7 @@
     veil.querySelector('.original').src = message.original;
     veil.querySelector('.result').src = message.result;
     veil.querySelector('.library').addEventListener('click', () => {
-      chrome.runtime.sendMessage({ type: 'CBM_OPEN', id:message.id }).catch(() => {});
+      send({ type: 'CBM_OPEN', id:message.id }).catch(error => showError(error.message));
     });
     veil.querySelector('.close').addEventListener('click', closeDialog);
     veil.addEventListener('click', e => { if (e.target === veil) closeDialog(); });

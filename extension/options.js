@@ -1,5 +1,5 @@
 import { getAll, put, remove } from './lib/db.js';
-import { dollars, summarize, safePageUrl } from './lib/model.js';
+import { dollars, summarize, safePageUrl, detailTitle } from './lib/model.js';
 import { likeButton, syncLikeButtons } from './lib/likes.js';
 import {normalizeSettings,isMock,modelLabel} from './lib/settings.js';
 import {progressText} from './lib/progress.js';
@@ -270,7 +270,7 @@ function openDetail(id, setHash = true) {
   if (setHash) history.replaceState(null, '', `#generation=${encodeURIComponent(id)}`);
   revoke(detailUrls);
   const content = $('#detail-content');content.replaceChildren();
-  const header = node('div', 'detail-header');const h = node('h2', '', record.pageTitle?.trim() || domain(record.pageUrl));h.id = 'detail-title';h.title = h.textContent;
+  const header = node('div', 'detail-header');const h = node('h2', '', detailTitle(record));h.id = 'detail-title';h.title = h.textContent;
   const close = node('button', 'detail-close');close.append(icon('close'));close.type = 'button';close.setAttribute('aria-label','Close comparison');close.addEventListener('click', () => $('#detail-dialog').close());header.append(h,close);
   const comparison = node('div','detail-comparison');
   for (const [label, blob] of [['Original',record.original],[isMock(record) ? 'Your try-on · mock' : 'Your try-on',record.result]]) {

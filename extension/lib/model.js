@@ -35,3 +35,11 @@ export async function generateTryOn({ original, references, delay = 10000 }) {
     referenceIds: references.map(ref => ref.id),
   };
 }
+
+// Title for the larger comparison view. Never the image alt text: shops fill it with
+// whole product descriptions ("Image 1 of 8, For this easy jacket…").
+export function detailTitle(record) {
+  const title = String(record?.pageTitle ?? '').trim();
+  if (title) return title;
+  try { return new URL(record.pageUrl).hostname.replace(/^www\./,'') || 'Your try-on'; } catch { return 'Your try-on'; }
+}
