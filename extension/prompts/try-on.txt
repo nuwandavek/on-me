@@ -13,6 +13,12 @@ PRESERVE
 - Realistic fabric drape, fit, seams, lighting, shadows, and anatomical proportions.
 - The model's bg, pose.
 
+HEAD AND BODY PROPORTIONS
+- Keep the head at a natural, life-size scale for the body. Do not enlarge the head or face. A common failure is a head that is slightly too big; avoid it.
+- Size the head from the user's full-body reference photos (head height relative to shoulder width and overall height), not from close-up face photos.
+- Match the head to the body's distance from the camera, perspective, and lens, the same way the model's head relates to their body in Image 1.
+- Keep the neck length and width, shoulder width, and torso length consistent with the user's references, so the head joins the body naturally.
+
 COMPOSITION
 Frame the person so the selected clothing is clearly visible. If the original shows only one clothing item, preserve the user's other clothing where possible. If it shows a complete outfit, transfer the complete visible outfit. If clothing details are hidden, infer them conservatively. But be honest to the user's face, features and body proportions.
 
