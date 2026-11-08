@@ -6,11 +6,17 @@ import {progressText} from './lib/progress.js';
 import {skippedSites,allowedSites,siteMode,siteHostname,SITE_POLICY_KEYS} from './lib/sites.js';
 import {icon} from './lib/icons.js';
 import {usageStats,topSites,weeklyCounts} from './lib/stats.js';
+import {profileList,activeProfileId,inProfile,profileOf,addProfile,renameProfile,removeProfile,updateProfileDetails,DETAIL_MAX,PROFILE_KEYS,DEFAULT_PROFILE_ID,MIN_REFERENCES,MAX_REFERENCES} from './lib/profiles.js';
 
 const $ = selector => document.querySelector(selector);
 const date = value => new Intl.DateTimeFormat(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }).format(value);
 let generations = [];
+let allGenerations = [];
+let allLedger = [];
 let references = [];
+let allReferences = [];
+let profiles = profileList();
+let activeProfile = 'default';
 let ledger = [];
 let filter = 'all';
 let historyUrls = [];
@@ -65,13 +71,18 @@ async function refresh() {
   if (refreshing) { queuedRefresh = true;return; }
   refreshing = true;
   try {
-    [generations, references, ledger] = await Promise.all([getAll('generations'), getAll('references'), getAll('ledger')]);
-    references.sort((a,b) => a.createdAt - b.createdAt);
+    let profileStore;
+    [allGenerations, allReferences, allLedger, profileStore] = await Promise.all([getAll('generations'), getAll('references'), getAll('ledger'), chrome.storage.local.get(PROFILE_KEYS)]);
+    profiles = profileList(profileStore);activeProfile = activeProfileId(profileStore);
+    // Looks, counts, spend, and stats follow the set in use. Lifetime cost tracking covers every set.
+    generations = inProfile(allGenerations, activeProfile);ledger = inProfile(allLedger, activeProfile);
+    references = inProfile(allReferences, activeProfile).sort((a,b) => a.createdAt - b.createdAt);
     const stats = summarize(generations, ledger);
     $('#total-spend').textContent = `${dollars(stats.total)}${stats.unknown ? '+' : ''}`;
-    $('#settings-total').textContent = `${dollars(stats.total, true)} USD${stats.unknown ? ' · known subtotal' : ''}`;
     $('#spend-note').textContent = stats.unknown ? `${stats.unknown} costs unknown · known subtotal` : 'Usage-based estimate';
-    $('#ledger-count').textContent = ledger.length;
+    const lifetime = summarize(allGenerations, allLedger);
+    $('#settings-total').textContent = `${dollars(lifetime.total, true)} USD${lifetime.unknown ? ' · known subtotal' : ''}`;
+    $('#ledger-count').textContent = allLedger.length;
     $('#nav-count').textContent = generations.length;
     $('#history-count').textContent = generations.length;
     $('#failed-count').textContent = generations.filter(r => r.status === 'failed').length;
@@ -205,24 +216,102 @@ function renderHistory() {
   if (focusedLike) (list.querySelector(`[data-like-id="${CSS.escape(focusedLike)}"]`) || $('#liked-filter')).focus({preventScroll:true});
 }
 
-function renderReferences() {
-  revoke(referenceUrls);
-  $('#reference-count').textContent = `${references.length} / 6`;
-  const list = $('#reference-list');list.replaceChildren();
-  const sidebar = $('#sidebar-photos');sidebar.replaceChildren();
-  if (!references.length) sidebar.append(node('span', 'photo-placeholder', '+'));
-  for (const ref of references) {
-    const figure = node('figure', 'reference-photo');const frame = node('div', 'reference-frame');
+const profileName = id => profiles.find(p => p.id === id)?.name || profiles[0].name;
+let renaming = null;
+let uploadTarget = DEFAULT_PROFILE_ID;
+
+async function switchProfile(id) {
+  if (id === activeProfile) return;
+  try { await chrome.storage.local.set({activeProfile:id});await refresh();channel.postMessage('references');toast(`Try-ons now use ${profileName(id)}.`); }
+  catch (error) { toast(error.message, true); }
+}
+async function saveName(id, name) {
+  try { await chrome.storage.local.set(renameProfile(await chrome.storage.local.get(PROFILE_KEYS), id, name));renaming = null;await refresh();channel.postMessage('references'); }
+  catch (error) { toast(error.message, true); }
+}
+async function saveDetails(id, details) {
+  try { await chrome.storage.local.set(updateProfileDetails(await chrome.storage.local.get(PROFILE_KEYS), id, details));toast('Saved. New try-ons will include it.'); }
+  catch (error) { toast(error.message, true); }
+}
+function confirmDeleteSet(id) {
+  $('#delete-set-title').textContent = `Delete ${profileName(id)}?`;
+  const dialog = $('#delete-set-dialog');dialog.returnValue = '';dialog.dataset.profileId = id;dialog.showModal();
+}
+function button(className, label, onClick) {
+  const element = node('button', className, label);element.type = 'button';element.addEventListener('click', onClick);
+  return element;
+}
+
+// One row per photo set. With a single set there are no names or set controls, so a new user just sees their photos.
+function setRow(profile, refs, many) {
+  const row = node('section', `set-row${many && profile.id === activeProfile ? ' active' : ''}`);
+  row.setAttribute('aria-label', many ? profile.name : 'Your photos');
+  const head = node('div', 'set-head');
+  if (renaming === profile.id) {
+    const form = node('form', 'set-rename');const input = node('input');
+    input.value = profile.name;input.maxLength = 40;input.autocomplete = 'off';input.setAttribute('aria-label', 'Set name');
+    const save = node('button', 'button primary', 'Save');save.type = 'submit';
+    form.append(input, save, button('button', 'Cancel', () => { renaming = null;renderReferences(); }));
+    form.addEventListener('submit', e => { e.preventDefault();saveName(profile.id, input.value); });
+    head.append(form);requestAnimationFrame(() => { input.focus();input.select(); });
+  } else {
+    head.append(node('h2', 'set-name', many ? profile.name : 'Your photos'), node('span', 'set-count', `${refs.length} / ${MAX_REFERENCES}`));
+    if (many) head.append(profile.id === activeProfile ? node('span', 'set-badge', 'In use') : button('set-use', 'Use this set', () => switchProfile(profile.id)));
+    if (refs.length < MIN_REFERENCES && (refs.length || many)) head.append(node('span', 'set-warn', `Add ${MIN_REFERENCES - refs.length} more`));
+    if (many) {
+      const actions = node('div', 'set-actions');
+      actions.append(button('', 'Rename', () => { renaming = profile.id;renderReferences(); }));
+      if (profile.id !== DEFAULT_PROFILE_ID) actions.append(button('set-delete', 'Delete', () => confirmDeleteSet(profile.id)));
+      head.append(actions);
+    }
+  }
+  const photos = node('div', 'set-photos');
+  for (const ref of refs) {
+    const figure = node('figure', 'set-photo');figure.title = ref.name;
     const img = node('img');img.src = blobUrl(ref.blob, referenceUrls);img.alt = ref.name;
-    const deleteButton = node('button', 'reference-remove');deleteButton.append(icon('close'));deleteButton.type = 'button';deleteButton.setAttribute('aria-label', `Remove ${ref.name}`);
-    deleteButton.addEventListener('click', async () => {
+    const remover = button('reference-remove', undefined, async () => {
       try { await remove('references', ref.id);await refresh();channel.postMessage('references');toast('Reference photo removed.'); }
       catch (error) { toast(error.message, true); }
     });
-    frame.append(img, deleteButton);figure.append(frame, node('figcaption', '', ref.name));list.append(figure);
-    const thumb = node('img');thumb.src = img.src;thumb.alt = '';sidebar.append(thumb);
+    remover.append(icon('close'));remover.setAttribute('aria-label', `Remove ${ref.name}`);
+    figure.append(img, remover);photos.append(figure);
   }
-  $('#reference-caption').textContent = references.length ? `${references.length} photo${references.length === 1 ? '' : 's'} of you` : 'No photos yet';
+  if (refs.length < MAX_REFERENCES) {
+    const add = button('set-add', undefined, () => { uploadTarget = profile.id;$('#reference-input').click(); });
+    add.append(icon('add'), node('span', '', refs.length ? 'Add photo' : 'Add photos'));
+    add.setAttribute('aria-label', many ? `Add photos to ${profile.name}` : 'Add photos');
+    photos.append(add);
+  }
+  const details = node('div', 'set-details');
+  for (const [key, label, placeholder] of [['build', 'Build', 'e.g. 5′10″, athletic, broad shoulders'], ['sizes', 'Sizes you wear', 'e.g. M tops, 32×32 jeans, US 10 shoes']]) {
+    const field = node('label', 'set-detail');const input = node('input');
+    input.value = profile[key] || '';input.placeholder = placeholder;input.maxLength = DETAIL_MAX;input.autocomplete = 'off';
+    input.addEventListener('change', () => saveDetails(profile.id, {[key]:input.value}));
+    field.append(node('span', '', label), input);details.append(field);
+  }
+  row.addEventListener('dragover', e => { e.preventDefault();row.classList.add('dragging'); });
+  row.addEventListener('dragleave', e => { if (!row.contains(e.relatedTarget)) row.classList.remove('dragging'); });
+  row.addEventListener('drop', e => { e.preventDefault();row.classList.remove('dragging');upload([...e.dataTransfer.files], profile.id); });
+  row.append(head, photos, details);
+  return row;
+}
+
+function renderReferences() {
+  revoke(referenceUrls);
+  const many = profiles.length > 1;
+  const sets = $('#sets');sets.replaceChildren();sets.classList.toggle('many', many);
+  for (const profile of profiles) sets.append(setRow(profile, inProfile(allReferences, profile.id).sort((a,b) => a.createdAt - b.createdAt), many));
+  // Sets only come up once there's a first photo; a brand-new user never sees the idea.
+  $('#add-profile').hidden = !allReferences.length;
+  const picker = $('#set-picker');picker.closest('.set-picker').hidden = !many;
+  picker.replaceChildren(...profiles.map(profile => { const option = node('option', '', profile.name);option.value = profile.id;return option; }));
+  picker.value = activeProfile;
+  $('#set-tip').textContent = many ? 'Try-ons use the set marked “In use”. All its photos are included.' : 'All the photos are included in each real try-on.';
+  const sidebar = $('#sidebar-photos');sidebar.replaceChildren();
+  if (!references.length) sidebar.append(node('span', 'photo-placeholder', '+'));
+  for (const ref of references) { const thumb = node('img');thumb.src = blobUrl(ref.blob, referenceUrls);thumb.alt = '';sidebar.append(thumb); }
+  const photos = `${references.length} photo${references.length === 1 ? '' : 's'}`;
+  $('#reference-caption').textContent = many ? `${references.length ? photos : 'No photos'} · ${profileName(activeProfile)}` : references.length ? `${photos} of you` : 'No photos yet';
   $('#reference-manage').textContent = references.length ? 'Manage' : 'Add photos';
 }
 
@@ -242,26 +331,26 @@ async function normalizePhoto(file) {
 }
 
 let uploading = false;
-async function upload(files) {
+async function upload(files, profileId) {
   if (uploading || !files.length) return;
-  uploading = true;$('#dropzone').setAttribute('aria-busy', 'true');
+  uploading = true;$('#sets').setAttribute('aria-busy', 'true');
   let added = 0;
   try {
-    let count = (await getAll('references')).length;
+    let count = inProfile(await getAll('references'), profileId).length;
     for (const file of files) {
-      if (count >= 6) { toast('You can keep up to 6 reference photos. Remove one to add another.', true);break; }
+      if (count >= MAX_REFERENCES) { toast(`A photo set holds up to ${MAX_REFERENCES} photos. Remove one to add another.`, true);break; }
       try {
         const blob = await normalizePhoto(file);
-        await put('references', { id:crypto.randomUUID(), createdAt:Date.now(), name:file.name, blob });count++;added++;
+        await put('references', { id:crypto.randomUUID(), createdAt:Date.now(), name:file.name, blob, profileId });count++;added++;
       } catch (error) { toast(error.message, true); }
     }
     await refresh();channel.postMessage('references');
     if (added && $('#toast').hidden) toast(`${added} reference photo${added === 1 ? '' : 's'} saved.`);
-  } finally { uploading = false;$('#dropzone').removeAttribute('aria-busy');$('#reference-input').value = ''; }
+  } finally { uploading = false;$('#sets').removeAttribute('aria-busy');$('#reference-input').value = ''; }
 }
 
 function openDetail(id, setHash = true) {
-  const record = generations.find(item => item.id === id);
+  const record = allGenerations.find(item => item.id === id);
   if (!record) { if (setHash) toast('This try-on is no longer in your history.');return; }
   const version = JSON.stringify({...record,original:record.original?.size,result:record.result?.size});
   if (!setHash && $('#detail-dialog').open && detailVersion === version) return;
@@ -278,7 +367,7 @@ function openDetail(id, setHash = true) {
     if (blob === record.result && record.status === 'completed') cell.append(likeButton(record,{onChange:refresh,onError:message => toast(message,true)}));
     const figure = node('figure');figure.append(node('figcaption','',label),cell);comparison.append(figure);
   }
-  const info = node('div','detail-info');const left = node('div');left.append(node('p','',date(record.createdAt)),node('p','',`${record.referenceIds?.length || 0} reference photos associated with this try-on`),node('p','', isMock(record) ? 'Mock mode · the result is the original image' : `${modelLabel(record.model)} · ${record.settings?.quality || 'low'} quality`));
+  const info = node('div','detail-info');const left = node('div');left.append(node('p','',date(record.createdAt)),node('p','',`${record.referenceIds?.length || 0} reference photos associated with this try-on${profiles.length > 1 ? ` · ${profileName(profileOf(record))}` : ''}`),node('p','', isMock(record) ? 'Mock mode · the result is the original image' : `${modelLabel(record.model)} · ${record.settings?.quality || 'low'} quality`));
   if (record.status === 'pending') {
     const progress = node('p','request-progress',progressText(record));progress.dataset.progressId = record.id;left.append(progress);
   }
@@ -340,14 +429,28 @@ $('#all-filter').addEventListener('click',() => setFilter('all'));
 $('#liked-filter').addEventListener('click',() => setFilter('liked'));
 $('#failed-filter').addEventListener('click',() => setFilter('failed'));
 $('#reset-search').addEventListener('click',() => { $('#search').value = '';setFilter('all'); });
-$('#reference-input').addEventListener('change',e => upload([...e.target.files]));
-$('#dropzone').addEventListener('keydown',e => { if(e.key === 'Enter' || e.key === ' ') { e.preventDefault();$('#reference-input').click(); } });
-for (const type of ['dragover','dragenter']) $('#dropzone').addEventListener(type,e => { e.preventDefault();$('#dropzone').classList.add('dragging'); });
-for (const type of ['dragleave','drop']) $('#dropzone').addEventListener(type,e => { e.preventDefault();$('#dropzone').classList.remove('dragging');if(type === 'drop')upload([...e.dataTransfer.files]); });
+$('#reference-input').addEventListener('change',e => upload([...e.target.files], uploadTarget));
 $('#export-costs').addEventListener('click',() => {
-  const rows = [['generation_id','created_at','model','cost_usd','cost_source','usage_json','pricing_json','request_id','status'],...ledger.map(row => [row.id,new Date(row.createdAt).toISOString(),row.model,row.costUsd ?? '',row.costSource,JSON.stringify(row.usage),JSON.stringify(row.pricing),row.requestId || '',row.status || 'completed'])];
+  const rows = [['generation_id','created_at','model','cost_usd','cost_source','usage_json','pricing_json','request_id','status'],...allLedger.map(row => [row.id,new Date(row.createdAt).toISOString(),row.model,row.costUsd ?? '',row.costSource,JSON.stringify(row.usage),JSON.stringify(row.pricing),row.requestId || '',row.status || 'completed'])];
   const csv = rows.map(row => row.map(value => `"${String(value ?? '').replaceAll('"','""')}"`).join(',')).join('\r\n');
   const url = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));const a = node('a');a.href = url;a.download = 'on-me-costs.csv';a.click();setTimeout(() => URL.revokeObjectURL(url),1000);
+});
+$('#set-picker').addEventListener('change', e => switchProfile(e.target.value));
+$('#add-profile').addEventListener('click', async () => {
+  try {
+    const next = addProfile(await chrome.storage.local.get(PROFILE_KEYS), crypto.randomUUID());
+    await chrome.storage.local.set(next);renaming = next.profiles.at(-1).id;await refresh();channel.postMessage('references');
+  } catch (error) { toast(error.message, true); }
+});
+$('#delete-set-dialog').addEventListener('close', async () => {
+  const dialog = $('#delete-set-dialog');
+  if (dialog.returnValue !== 'delete') return;
+  try {
+    const id = dialog.dataset.profileId;const name = profileName(id);
+    await chrome.storage.local.set(removeProfile(await chrome.storage.local.get(PROFILE_KEYS), id));
+    for (const ref of inProfile(await getAll('references'), id)) await remove('references', ref.id);
+    await refresh();channel.postMessage('references');toast(`${name} deleted.`);
+  } catch (error) { toast(error.message, true); }
 });
 addEventListener('hashchange',route);
 let resizeTimer;addEventListener('resize',() => { clearTimeout(resizeTimer);resizeTimer = setTimeout(() => { if (!$('#stats-view').hidden) renderStats(); },150); });
@@ -476,6 +579,7 @@ $('#skip-site-form').addEventListener('submit',async event => {
 });
 chrome.storage.onChanged.addListener((changes,area) => {
   if (area === 'local' && SITE_POLICY_KEYS.some(key => changes[key])) renderSkippedSites().catch(error => toast(error.message,true));
+  if (area === 'local' && PROFILE_KEYS.some(key => changes[key])) refresh();
 });
 renderSkippedSites().catch(error => toast(`Could not load skipped websites: ${error.message}`,true));
 refresh();

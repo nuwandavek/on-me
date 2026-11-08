@@ -12,7 +12,7 @@ function entry(record) {
   return {
     id:record.id,createdAt:Date.now(),model:record.model,costUsd:record.costUsd,
     costSource:record.costSource,usage:record.usage || null,pricing:record.pricing || null,
-    requestId:record.requestId || null,clientRequestId:record.id,status:record.status,
+    requestId:record.requestId || null,clientRequestId:record.id,status:record.status,profileId:record.profileId || null,
   };
 }
 

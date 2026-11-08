@@ -4,11 +4,13 @@ import { likeButton } from './lib/likes.js';
 import {normalizeSettings,isMock,modelLabel} from './lib/settings.js';
 import {progressText} from './lib/progress.js';
 import {setupState} from './lib/setup.js';
+import {activeProfileId,inProfile,profileList,PROFILE_KEYS} from './lib/profiles.js';
 
 const $ = selector => document.querySelector(selector);
 const channel = new BroadcastChannel('cbm-data');
 let urls = [];
 let records = [];
+let allRecords = [];
 let refreshing = false;
 let refreshAgain = false;
 let selection = null;
@@ -49,7 +51,7 @@ async function expand(id) {
 function render() {
   // Storage notifications can repeat, and gaining visibility can refresh the same
   // data. Keep the existing controls and image URLs when nothing has changed.
-  const state = JSON.stringify({filter,selection,config,records:records.map(record => ({
+  const state = JSON.stringify({filter,selection,config,all:allRecords.map(record => record.status),records:records.map(record => ({
     ...record,
     original:record.original ? [record.original.size,record.original.type] : null,
     result:record.result ? [record.result.size,record.result.type] : null,
@@ -60,8 +62,9 @@ function render() {
   urls.forEach(url => URL.revokeObjectURL(url));urls = [];
   const list = $('#tryons');list.replaceChildren();
   const shown = filter === 'liked' ? records.filter(record => record.liked) : records;
+  $('.heading .eyebrow').textContent = config.setName ? config.setName.toUpperCase() : 'YOUR FITTING ROOM';
   // Walk new users through key → photos → first try-on until a real try-on has finished.
-  const {steps,visible:setup,current} = setupState(config,records,filter);
+  const {steps,visible:setup,current} = setupState(config,allRecords,filter);
   $('#setup').hidden = !setup;
   for (const item of document.querySelectorAll('#setup [data-step]')) {
     const key = item.dataset.step;
@@ -70,7 +73,7 @@ function render() {
   }
   for (const button of document.querySelectorAll('[data-site-mode]')) button.setAttribute('aria-checked',String(button.dataset.siteMode === config.siteMode));
   $('#setup [data-step="where"] .step-text span').textContent = config.siteMode === 'some' ? 'Only sites you enable. Turn one on from this panel.' : config.siteMode === 'all' ? 'Every website. Disable any from this panel.' : 'Show hangers on every website, or only ones you pick.';
-  $('#setup [data-step="photos"] .step-text span').textContent = config.references ? `${config.references} saved.` : 'A clear face photo and a full-body photo work best.';
+  $('#setup [data-step="photos"] .step-text span').textContent = config.references >= 2 ? `${config.references} saved.` : config.references ? '1 saved. Add at least one more.' : 'Add 2 to 6: a clear face photo and a full-body photo work best.';
   $('#empty').hidden = setup || shown.length > 0;
   $('#provider-note').hidden = setup;
   $('#empty h2').innerHTML = filter === 'liked' ? 'Your favorites<br>belong here.' : 'Keep browsing.<br>We’ll keep your try-ons here.';
@@ -140,14 +143,16 @@ async function refresh() {
   refreshing = true;
   try {
     await ready;
-    const [generations,references,state,publicConfig,sitePolicy] = await Promise.all([getAll('generations'),getAll('references'),chrome.storage.session.get(`selection:${windowId}`),chrome.runtime.sendMessage({type:'CBM_PUBLIC_CONFIG'}),chrome.storage.local.get('siteMode')]);
-    config = {settings:normalizeSettings(publicConfig.settings),hasKey:publicConfig.hasKey,references:references.length,siteMode:sitePolicy.siteMode || null};
+    const [generations,references,state,publicConfig,sitePolicy] = await Promise.all([getAll('generations'),getAll('references'),chrome.storage.session.get(`selection:${windowId}`),chrome.runtime.sendMessage({type:'CBM_PUBLIC_CONFIG'}),chrome.storage.local.get(['siteMode',...PROFILE_KEYS])]);
+    const profileId = activeProfileId(sitePolicy);const profiles = profileList(sitePolicy);
+    config = {settings:normalizeSettings(publicConfig.settings),hasKey:publicConfig.hasKey,references:inProfile(references,profileId).length,setName:profiles.length > 1 ? profiles.find(p => p.id === profileId).name : null,siteMode:sitePolicy.siteMode || null};
     $('#mode-label').textContent = config.settings.mode === 'mock' ? 'MOCK MODE' : !config.hasKey ? 'SETUP' : config.settings.model.endsWith('flare') ? 'FLARE' : 'SUNBURST';
     $('#provider-note').textContent = config.settings.mode === 'mock' ? 'Mock previews use the original image.' : !config.hasKey ? 'Add your API key in the dashboard to start.' : `${modelLabel(config.settings.model)} · ${config.settings.quality} quality`;
     const nextSelection = state[`selection:${windowId}`] || null;
     if (nextSelection && nextSelection !== selection) setFilter('all',false);
     selection = nextSelection;
-    records = generations.sort((a,b) => b.createdAt - a.createdAt);
+    // The list follows the photo set in use; setup progress counts every set.
+    allRecords = generations.sort((a,b) => b.createdAt - a.createdAt);records = inProfile(allRecords,profileId);
     render();
   } catch (cause) { error(`Could not load your try-ons: ${cause.message}`); }
   finally { refreshing = false;if (refreshAgain) { refreshAgain = false;refresh(); } }
@@ -204,7 +209,7 @@ chrome.runtime.onMessage.addListener((message,sender) => {
   if (sender.id === chrome.runtime.id && message?.type === 'CBM_CLOSE_PANEL' && message.windowId === windowId) window.close();
 });
 chrome.storage.onChanged.addListener((changes,area) => {
-  if ((area === 'session' && changes[`selection:${windowId}`]) || (area === 'local' && (changes.generationSettings || changes.openaiApiKey))) refresh();
+  if ((area === 'session' && changes[`selection:${windowId}`]) || (area === 'local' && (changes.generationSettings || changes.openaiApiKey || changes.activeProfile))) refresh();
   if (area === 'local' && (changes.skippedSites || changes.allowedSites || changes.siteMode)) refreshActiveSite().catch(cause => error(cause.message));
   if (area === 'local' && changes.siteMode) refresh();
 });

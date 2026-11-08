@@ -1,14 +1,25 @@
-import { get, getAll, finishGeneration, enqueueGeneration, toggleLike } from './lib/db.js';
+import { get, getAll, put, finishGeneration, enqueueGeneration, toggleLike } from './lib/db.js';
 import { safePageUrl } from './lib/model.js';
 import {normalizeSettings} from './lib/settings.js';
 import {siteHostname,isSiteOff,siteMode,updateSiteList,SITE_POLICY_KEYS} from './lib/sites.js';
 import {comparisonOrder,comparisonPlace,stepTarget} from './lib/comparisons.js';
+import {activeProfileId,inProfile,profileOf,referencesToMigrate,profileList,profilePromptNote,PROFILE_KEYS,MIN_REFERENCES} from './lib/profiles.js';
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
 chrome.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === 'install') chrome.runtime.openOptionsPage();
+  migrateProfiles().catch(console.error);
   runJobs().catch(console.error);
 });
+
+// Photos saved before photo sets existed become the first set ("Set 1"). Safe to run repeatedly.
+async function migrateProfiles() {
+  const stored = await chrome.storage.local.get(PROFILE_KEYS);
+  if (!Array.isArray(stored.profiles)) await chrome.storage.local.set({profiles:profileList(stored)});
+  const moved = referencesToMigrate(await getAll('references'));
+  for (const ref of moved) await put('references',ref);
+  if (moved.length) changes.postMessage('references');
+}
 
 // Reference photos and settings are only available to extension pages.
 chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
@@ -27,7 +38,7 @@ async function runJobs() {
   }
   await chrome.runtime.sendMessage({type:'CBM_RUN_JOBS'});
 }
-chrome.runtime.onStartup.addListener(() => runJobs().catch(console.error));
+chrome.runtime.onStartup.addListener(() => { migrateProfiles().catch(console.error);runJobs().catch(console.error); });
 
 async function start(message,sender) {
   const pageUrl = safePageUrl(sender.tab?.url || message.pageUrl);
@@ -42,10 +53,12 @@ async function start(message,sender) {
       await chrome.storage.session.set({[`selection:${sender.tab.windowId}`]:existing.id});
       await runJobs();return {ok:true,id:existing.id,pending:true};
     }
-    const [references,stored] = await Promise.all([getAll('references'),chrome.storage.local.get(['generationSettings','openaiApiKey','promptMode','customPrompt'])]);
+    const [allReferences,stored] = await Promise.all([getAll('references'),chrome.storage.local.get(['generationSettings','openaiApiKey','promptMode','customPrompt',...PROFILE_KEYS])]);
+    const profileId = activeProfileId(stored);
+    const references = inProfile(allReferences,profileId);
     const settings = normalizeSettings(stored.generationSettings);
     if (settings.mode === 'openai' && !stored.openaiApiKey) throw new Error('Add your OpenAI API key in Dashboard → Settings.');
-    if (settings.mode === 'openai' && !references.length) throw new Error('Add a reference photo of you in your dashboard first.');
+    if (settings.mode === 'openai' && references.length < MIN_REFERENCES) throw new Error(references.length ? `Add at least ${MIN_REFERENCES} reference photos in your dashboard.` : 'Add reference photos in your dashboard first.');
     let prompt = stored.promptMode === 'custom' && typeof stored.customPrompt === 'string' ? stored.customPrompt : '';
     if (!prompt.trim()) {
       const promptResponse = await fetch(chrome.runtime.getURL('prompts/try-on.txt'));
@@ -53,12 +66,13 @@ async function start(message,sender) {
       prompt = await promptResponse.text();
     }
     if (!prompt.trim()) throw new Error('The try-on prompt is empty.');
+    prompt = prompt.trimEnd() + profilePromptNote(profileList(stored).find(p => p.id === profileId));
     const record = {
       id:crypto.randomUUID(),createdAt:Date.now(),status:'pending',stage:'queued',
       pageUrl,pageTitle:String(sender.tab.title || message.pageTitle || 'Untitled page').slice(0,300),
       imageUrl:String(message.imageUrl || '').slice(0,10000),imageAlt:String(message.imageAlt || '').slice(0,300),
       sourceTabId:sender.tab.id,model:settings.mode === 'mock' ? 'mock-original' : settings.model,
-      costUsd:null,referenceIds:references.map(ref => ref.id),settings,prompt,
+      costUsd:null,referenceIds:references.map(ref => ref.id),profileId,settings,prompt,
     };
     await enqueueGeneration(record,{
       id:record.id,createdAt:record.createdAt,state:'queued',sourceTabId:sender.tab.id,
@@ -144,7 +158,7 @@ async function compareOnPage(message) {
   if (!safePageUrl(tab.url)) throw new Error('Open a shopping page to expand the comparison, or view it in history.');
   const original = await imageDataUrl(record.original);
   const result = record.result === record.original ? original : await imageDataUrl(record.result);
-  const place = comparisonPlace(comparisonOrder(await getAll('generations')),record.id);
+  const place = comparisonPlace(comparisonOrder(inProfile(await getAll('generations'),profileOf(record))),record.id);
   try {
     return await chrome.tabs.sendMessage(tab.id, {
       type: 'CBM_SHOW_COMPARISON', id: record.id, original, result, liked:Boolean(record.liked), model:record.model,
@@ -156,7 +170,9 @@ async function compareOnPage(message) {
 }
 
 async function stepComparison(message,tabId) {
-  const id = stepTarget(comparisonOrder(await getAll('generations')),message.id,message.direction);
+  const records = await getAll('generations');
+  const current = records.find(record => record.id === message.id);
+  const id = stepTarget(comparisonOrder(current ? inProfile(records,profileOf(current)) : records),message.id,message.direction);
   if (!id) throw new Error('No more try-ons in that direction.');
   return compareOnPage({id,tabId});
 }

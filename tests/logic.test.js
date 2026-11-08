@@ -11,6 +11,7 @@ const openai = {settings:{mode:'openai'}};
 test('setup checklist walks key → photos → where → first try-on',() => {
   assert.deepEqual(setupState({...openai}).current,'key');
   assert.equal(setupState({...openai,hasKey:true}).current,'photos');
+  assert.equal(setupState({...openai,hasKey:true,references:1}).current,'photos','one photo is not enough');
   assert.equal(setupState({...openai,hasKey:true,references:2}).current,'where');
   assert.equal(setupState({...openai,hasKey:true,references:2,siteMode:'some'}).current,'try');
   const done = setupState({...openai,hasKey:true,references:2,siteMode:'all'},[real]);
@@ -24,7 +25,7 @@ test('setup checklist ticks each step independently of order',() => {
 });
 
 test('setup checklist stays until a real try-on finishes, and hides in mock mode or on Liked',() => {
-  const config = {...openai,hasKey:true,references:1,siteMode:'all'};
+  const config = {...openai,hasKey:true,references:2,siteMode:'all'};
   assert.equal(setupState(config,[{status:'completed',model:'mock-original'}]).visible,true);
   assert.equal(setupState(config,[{...real,status:'pending'},{...real,status:'failed'}]).visible,true);
   assert.equal(setupState({...config,settings:{mode:'mock'}}).visible,false);
