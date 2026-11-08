@@ -11,13 +11,14 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
 const plain = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setTimeout(resolve,0));
 
-function page({enabled = false} = {}) {
-  const dom = new JSDOM('<!doctype html><html><body><p>Shop</p></body></html>',{runScripts:'outside-only',pretendToBeVisual:true});
+function page({enabled = false,html = ''} = {}) {
+  const dom = new JSDOM(`<!doctype html><html><body><p>Shop</p>${html}</body></html>`,{runScripts:'outside-only',pretendToBeVisual:true});
   const {window} = dom;
   // The extension uses a closed shadow root; open it so the test can look inside.
   const attach = window.Element.prototype.attachShadow;
   window.Element.prototype.attachShadow = function () { return attach.call(this,{mode:'open'}); };
-  window.IntersectionObserver = class { observe(){} disconnect(){} };
+  // Report every observed image as on screen, so hangers get created.
+  window.IntersectionObserver = class { constructor(callback) { this.callback = callback; } observe(target) { this.callback([{target,isIntersecting:true}]); } disconnect(){} };
   window.ResizeObserver = class { observe(){} disconnect(){} };
   const listeners = new Set();const sent = [];
   const replies = {CBM_SITE_STATUS:{ok:true,enabled},CBM_COMPARE_STEP:{ok:true},CBM_TOGGLE_LIKE:{ok:true,liked:true},CBM_OPEN:{ok:true}};
@@ -33,8 +34,8 @@ function page({enabled = false} = {}) {
     for (const fn of [...listeners]) fn(message,{id:'ext'},value => got.push(plain(value)));
     return got;
   }
-  const show = (n = 2,total = 3) => deliver({type:'CBM_SHOW_COMPARISON',id:`id${n}`,original:PNG,result:PNG,liked:false,model:'gpt-image-2.6-flare',
-    position:n,total,hasPrev:n > 1,hasNext:n < total});
+  const show = (n = 2,total = 3,extra = {}) => deliver({type:'CBM_SHOW_COMPARISON',id:`id${n}`,original:PNG,result:PNG,liked:false,model:'gpt-image-2.6-flare',pageUrl:'https://www.shop.test/dress',...extra,
+    position:n,total,hasPrev:n > 1,hasNext:n < total,...extra});
   return {window,root,listeners,sent,replies,deliver,show};
 }
 
@@ -127,12 +128,38 @@ test('rejects comparisons that are not image data URLs',async () => {
   assert.equal(app.root(),null,'nothing left mounted');
 });
 
-test('"Go to dashboard" opens that try-on in the dashboard and closes the dialog',async () => {
+test('"All try-ons" opens that try-on in the dashboard and closes the dialog',async () => {
   const app = page({enabled:false});await tick();
   app.show(2);
   const button = app.root().querySelector('.library');
-  assert.equal(button.textContent.trim(),'Go to dashboard');
+  assert.equal(button.textContent.trim(),'All try-ons');
   button.click();await tick();
   assert.deepEqual(app.sent.at(-1),{type:'CBM_OPEN',id:'id2'});
   assert.equal(app.root(),null,'dialog gone (and the off-site mount with it)');
+});
+
+test('"View product" links to the page the clothing came from, in a new tab, only for web pages',async () => {
+  const app = page();await tick();
+  app.show(2);
+  const link = app.root().querySelector('.product');
+  assert.equal(link.hidden,false);
+  assert.equal(link.href,'https://www.shop.test/dress');
+  assert.equal(link.target,'_blank');assert.match(link.rel,/noopener/);
+  assert.equal(link.title,'shop.test');
+  for (const pageUrl of [null,'javascript:alert(1)','not a url']) {
+    app.show(2,3,{pageUrl});
+    const hidden = app.root().querySelector('.product');
+    assert.equal(hidden.hidden,true,String(pageUrl));assert.equal(hidden.hasAttribute('href'),false);
+  }
+});
+
+test('a hanger click sends the link the image sits in, so the product can be reopened later',async () => {
+  const app = page({enabled:true,html:'<a href="https://shop.test/p/hoodie-123"><img id="linked" alt="Hoodie"></a><img id="plain" alt="Tee">'});
+  app.replies.CBM_TRY_ON = {ok:true};
+  await tick();
+  const buttons = [...app.root().querySelectorAll('.try')];
+  assert.equal(buttons.length,2,'one hanger per image');
+  for (const button of buttons) { button.click();await tick(); }
+  const sent = app.sent.filter(m => m.type === 'CBM_TRY_ON');
+  assert.deepEqual(sent.map(m => [m.imageAlt,m.linkUrl]),[['Hoodie','https://shop.test/p/hoodie-123'],['Tee',null]]);
 });

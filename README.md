@@ -7,9 +7,12 @@
 <p align="center"><img src="docs/screenshots/shopping-with-panel.jpg" width="800" alt="A product page with the hanger button highlighted (click the hanger to try it on) and the On Me side panel listing finished try-ons"></p>
 
 <p align="center">
-  <img src="docs/screenshots/comparison.jpg" width="265" alt="Comparison dialog on the shopping page: the original product photo next to the try-on">
-  <img src="docs/screenshots/dashboard.jpg" width="265" alt="Dashboard: try-ons grouped by date with likes and per-try-on cost">
-  <img src="docs/screenshots/stats.png" width="265" alt="Dashboard stats: try-on counts, top websites, and try-ons per week">
+  <img src="docs/screenshots/comparison.jpg" width="395" alt="Comparison dialog on a shopping page: the original dress next to her try-on, with View product and All try-ons">
+  <img src="docs/screenshots/dashboard-2.jpg" width="395" alt="Dashboard: his try-ons grouped by date with likes and per-try-on cost">
+</p>
+<p align="center">
+  <img src="docs/screenshots/dashboard.jpg" width="395" alt="Dashboard: her looks grouped by date with likes, per-try-on cost, and the photo set switcher">
+  <img src="docs/screenshots/stats.png" width="395" alt="Dashboard stats: try-on counts, top websites, and try-ons per week">
 </p>
 
 ## Setup

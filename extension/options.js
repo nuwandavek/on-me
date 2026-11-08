@@ -1,5 +1,5 @@
 import { getAll, put, remove } from './lib/db.js';
-import { dollars, summarize, safePageUrl, detailTitle } from './lib/model.js';
+import { dollars, summarize, safePageUrl, detailTitle, productLink } from './lib/model.js';
 import { likeButton, syncLikeButtons } from './lib/likes.js';
 import {normalizeSettings,isMock,modelLabel} from './lib/settings.js';
 import {progressText} from './lib/progress.js';
@@ -53,7 +53,7 @@ function toast(message, error = false) {
 function domain(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'Original page'; } }
 function sourceLink(record, className, title) {
   const link = node('a', className, title || domain(record.pageUrl));
-  const safe = safePageUrl(record.pageUrl);
+  const safe = productLink(record);
   if (safe) { link.href = safe;link.target = '_blank';link.rel = 'noopener noreferrer'; }
   return link;
 }
@@ -378,7 +378,7 @@ function openDetail(id, setHash = true) {
     request.append(node('p','',`Client request: ${record.id}`));left.append(request);
   }
   const right = node('div');right.append(node('strong','',record.costUsd == null ? (record.status === 'pending' ? '—' : 'Unknown') : dollars(record.costUsd,true)),node('p','',record.costUsd == null ? 'Usage unavailable · excluded from total' : isMock(record) ? 'USD · no API charge' : 'USD · estimated from API usage'));info.append(left,right);
-  const actions = node('div','detail-actions');const visit = sourceLink(record,'button primary','Visit original page');visit.append(icon('open'));actions.append(visit);
+  const actions = node('div','detail-actions');const visit = sourceLink(record,'button primary',record.productUrl ? 'View product' : 'Visit original page');visit.append(icon('open'));actions.append(visit);
   if (record.result) {
     const download = node('a','button','Download preview');download.append(icon('download'));download.href = blobUrl(record.result,detailUrls);download.download = `on-me-${record.id.slice(0,8)}.${record.result.type.includes('png') ? 'png' : record.result.type.includes('webp') ? 'webp' : record.result.type.includes('avif') ? 'avif' : record.result.type.includes('gif') ? 'gif' : 'jpg'}`;actions.append(download);
   }

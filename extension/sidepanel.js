@@ -1,5 +1,5 @@
 import { getAll } from './lib/db.js';
-import { safePageUrl } from './lib/model.js';
+import { safePageUrl, productLink } from './lib/model.js';
 import { likeButton } from './lib/likes.js';
 import {normalizeSettings,isMock,modelLabel} from './lib/settings.js';
 import {progressText} from './lib/progress.js';
@@ -108,7 +108,7 @@ function render() {
     pair.append(original,result);button.append(pair);
     const details = node('div','details');const left = node('div');
     const source = node('a','source',domain(record.pageUrl));
-    const url = safePageUrl(record.pageUrl);
+    const url = productLink(record);
     if (url) { source.href = url;source.target = '_blank';source.rel = 'noopener noreferrer'; }
     source.title = record.pageTitle;
     const when = new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(record.createdAt);
@@ -204,7 +204,7 @@ for (const button of document.querySelectorAll('[data-site-mode]')) button.addEv
 for (const button of document.querySelectorAll('[data-open]')) button.addEventListener('click',() => chrome.tabs.create({url:chrome.runtime.getURL(`options.html#${button.dataset.open}`)}).catch(cause => error(cause.message)));
 $('#liked-filter').addEventListener('click',() => setFilter('liked'));
 channel.onmessage = refresh;
-// Sent when "Go to dashboard" is clicked in a comparison on the page (for Chrome without sidePanel.close).
+// Sent when "All try-ons" is clicked in a comparison on the page (for Chrome without sidePanel.close).
 chrome.runtime.onMessage.addListener((message,sender) => {
   if (sender.id === chrome.runtime.id && message?.type === 'CBM_CLOSE_PANEL' && message.windowId === windowId) window.close();
 });

@@ -73,3 +73,14 @@ test('comparison title is the page title or site, never the image alt text',() =
   assert.equal(detailTitle({pageTitle:'',imageAlt:alt,pageUrl:'https://www.shop.com/x'}),'shop.com');
   assert.equal(detailTitle({imageAlt:alt,pageUrl:'not a url'}),'Your try-on');
 });
+
+test('the link around a clicked image is the product link; otherwise the page is',async () => {
+  const {productUrlFor,productLink} = await import('../extension/lib/model.js');
+  const page = 'https://www.hollisterco.com/shop/us';
+  assert.equal(productUrlFor('https://www.hollisterco.com/shop/us/p/hoodie-123',page),'https://www.hollisterco.com/shop/us/p/hoodie-123');
+  assert.equal(productUrlFor(page + '#top',page),null,'a link back to the same page adds nothing');
+  for (const bad of [null,'','javascript:alert(1)','not a url','https://x.test/' + 'a'.repeat(5000)]) assert.equal(productUrlFor(bad,page),null,String(bad).slice(0,30));
+  assert.equal(productLink({pageUrl:page,productUrl:'https://www.hollisterco.com/p/1'}),'https://www.hollisterco.com/p/1');
+  assert.equal(productLink({pageUrl:page}),page,'older try-ons and unlinked images use the page');
+  assert.equal(productLink({pageUrl:page,productUrl:'javascript:x'}),page);
+});

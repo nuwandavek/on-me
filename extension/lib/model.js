@@ -23,6 +23,16 @@ export function safePageUrl(value) {
   } catch { return null; }
 }
 
+// The link around a clicked image (a product card on a homepage) is kept when it leads somewhere else.
+export function productUrlFor(linkUrl, pageUrl) {
+  const link = safePageUrl(linkUrl);
+  if (!link || link.length > 4000) return null;
+  return link.split('#')[0] === String(pageUrl || '').split('#')[0] ? null : link;
+}
+
+// Where "View product" goes: the image's own link if it had one, otherwise the page it was on.
+export const productLink = record => safePageUrl(record?.productUrl) || safePageUrl(record?.pageUrl);
+
 // Replace only this provider when enabling a real API. Never invent token usage.
 export async function generateTryOn({ original, references, delay = 10000 }) {
   await new Promise(resolve => setTimeout(resolve, delay));

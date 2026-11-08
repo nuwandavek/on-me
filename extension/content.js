@@ -71,7 +71,7 @@
      .status.error { color:#aa3b27; }
     footer { border-top:1px solid #dfdfd5;display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:12px 24px;margin-top:8px; }
     .like { position:absolute;top:10px;right:10px;z-index:1;display:flex;align-items:center;justify-content:center;width:36px;height:36px;padding:9px;border:0;border-radius:50%;background:#faf9f1d9;color:#818b73;cursor:pointer; } .like svg { display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round; } .like:hover { background:#fffaf2;color:#d9513a; } .like[aria-pressed=true] { color:#d9513a; } .like[aria-pressed=true] svg { fill:currentColor; } .like:disabled { opacity:.6;cursor:wait; }
-    .library { border:0;background:#272920;color:#faf9f4;border-radius:7px;font-size:12px;font-weight:600;padding:12px 17px;display:inline-flex;align-items:center;gap:7px; } .library svg { width:16px;height:16px;fill:currentColor; } .library:hover { background:#45473e; }
+    .library { border:0;background:#272920;color:#faf9f4;border-radius:7px;font-size:12px;font-weight:600;padding:12px 17px;display:inline-flex;align-items:center;gap:7px; } .library svg { width:16px;height:16px;fill:currentColor; } .library:hover { background:#45473e; } .product { border:1px solid #d6d6cb;color:#33352c;border-radius:7px;font-size:12px;font-weight:600;padding:11px 16px;display:inline-flex;align-items:center;gap:7px;text-decoration:none; } .product svg { width:16px;height:16px;fill:currentColor; } .product:hover { background:#efeee6; } .product[hidden] { display:none; }
     @keyframes spin { to { transform:rotate(360deg); } } @keyframes appear { from { opacity:0;transform:translateY(8px); } to { opacity:1;transform:translateY(0); } }
     @media(max-width:500px) { .veil { padding:12px; } .step { width:32px;height:32px; } .step.prev { left:6px; } .step.next { right:6px; } .dialog { max-height:calc(100dvh - 24px); } header { padding:16px; } .comparison { padding:16px;gap:8px; } .photo { max-width:38vh; }   footer { padding:10px 16px; } }
     @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important;transition:none!important; } }
@@ -121,7 +121,7 @@
     try {
       const response = await send({
         type:'CBM_TRY_ON', imageUrl:img.currentSrc || img.src, snapshot:capture(img),
-        imageAlt:img.alt, pageUrl:location.href, pageTitle:document.title,
+        imageAlt:img.alt, pageUrl:location.href, pageTitle:document.title, linkUrl:img.closest('a[href]')?.href || null,
       });
       if (!response?.ok) throw new Error(response?.error || 'Unable to save this try-on. Please try again.');
     } catch (error) {
@@ -141,7 +141,7 @@
     const veil = document.createElement('div');
     veil.className = 'veil';
     if (stepping) veil.style.animation = 'none';
-    veil.innerHTML = `<div class="frame"><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="cbm-title"><header><div class="brand" id="cbm-title">${hanger}<span>on me<span style="color:#d74730">.</span></span></div><div class="header-end"><span class="position"></span><button class="close" aria-label="Close comparison"><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-424 284-228q-11 11-28 11t-28-11q-11-11-11-28t11-28l196-196-196-196q-11-11-11-28t11-28q11-11 28-11t28 11l196 196 196-196q11-11 28-11t28 11q11 11 11 28t-11 28L536-480l196 196q11 11 11 28t-11 28q-11 11-28 11t-28-11L480-424Z"/></svg></button></div></header><div class="comparison"><figure><figcaption>Original</figcaption><div class="photo"><img class="original" alt="Original clothing image"></div></figure><figure><figcaption>Your try-on</figcaption><div class="photo"><img class="result" alt="Mock result: same as original"><button class="like" type="button" aria-label="Like this try-on" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.8a5.5 5.5 0 0 0-7.8 0l-1 1-1-1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.4a5.5 5.5 0 0 0 0-7.8Z"/></svg></button></div></figure></div><footer><button class="library">Go to dashboard <svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M640-624 284-268q-11 11-28 11t-28-11q-11-11-11-28t11-28l356-356H280q-17 0-28.5-11.5T240-720q0-17 11.5-28.5T280-760h400q17 0 28.5 11.5T720-720v400q0 17-11.5 28.5T680-280q-17 0-28.5-11.5T640-320v-304Z"/></svg></button></footer></section></div>`;
+    veil.innerHTML = `<div class="frame"><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="cbm-title"><header><div class="brand" id="cbm-title">${hanger}<span>on me<span style="color:#d74730">.</span></span></div><div class="header-end"><span class="position"></span><button class="close" aria-label="Close comparison"><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-424 284-228q-11 11-28 11t-28-11q-11-11-11-28t11-28l196-196-196-196q-11-11-11-28t11-28q11-11 28-11t28 11l196 196 196-196q11-11 28-11t28 11q11 11 11 28t-11 28L536-480l196 196q11 11 11 28t-11 28q-11 11-28 11t-28-11L480-424Z"/></svg></button></div></header><div class="comparison"><figure><figcaption>Original</figcaption><div class="photo"><img class="original" alt="Original clothing image"></div></figure><figure><figcaption>Your try-on</figcaption><div class="photo"><img class="result" alt="Mock result: same as original"><button class="like" type="button" aria-label="Like this try-on" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.8a5.5 5.5 0 0 0-7.8 0l-1 1-1-1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.4a5.5 5.5 0 0 0 0-7.8Z"/></svg></button></div></figure></div><footer><a class="product" target="_blank" rel="noopener noreferrer" hidden><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h240q17 0 28.5 11.5T480-800q0 17-11.5 28.5T440-760H200v560h560v-240q0-17 11.5-28.5T800-480q17 0 28.5 11.5T840-440v240q0 33-23.5 56.5T760-120H200Zm560-584L416-360q-11 11-28 11t-28-11q-11-11-11-28t11-28l344-344H600q-17 0-28.5-11.5T560-800q0-17 11.5-28.5T600-840h200q17 0 28.5 11.5T840-800v200q0 17-11.5 28.5T800-560q-17 0-28.5-11.5T760-600v-104Z"/></svg><span>View product</span></a><button class="library"><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M200-520q-33 0-56.5-23.5T120-600v-160q0-33 23.5-56.5T200-840h160q33 0 56.5 23.5T440-760v160q0 33-23.5 56.5T360-520H200Zm0 400q-33 0-56.5-23.5T120-200v-160q0-33 23.5-56.5T200-440h160q33 0 56.5 23.5T440-360v160q0 33-23.5 56.5T360-120H200Zm400-400q-33 0-56.5-23.5T520-600v-160q0-33 23.5-56.5T600-840h160q33 0 56.5 23.5T840-760v160q0 33-23.5 56.5T760-520H600Zm0 400q-33 0-56.5-23.5T520-200v-160q0-33 23.5-56.5T600-440h160q33 0 56.5 23.5T840-360v160q0 33-23.5 56.5T760-120H600ZM200-600h160v-160H200v160Zm400 0h160v-160H600v160Zm0 400h160v-160H600v160Zm-400 0h160v-160H200v160Z"/></svg><span>All try-ons</span></button></footer></section></div>`;
     const chevron = `<svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M504-480 348-636q-11-11-11-28t11-28q11-11 28-11t28 11l184 184q6 6 8.5 13t2.5 15q0 8-2.5 15t-8.5 13L404-268q-11 11-28 11t-28-11q-11-11-11-28t11-28l156-156Z"/></svg>`;
     const photos = veil.querySelectorAll('.photo');
     photos[0].insertAdjacentHTML('beforeend',`<button class="step prev" type="button" aria-label="Previous try-on">${chevron}</button>`);
@@ -181,6 +181,12 @@
     });
     veil.querySelector('.original').src = message.original;
     veil.querySelector('.result').src = message.result;
+    // The page the original image came from, so it's easy to go back and buy it.
+    const product = veil.querySelector('.product');
+    try {
+      const url = new URL(message.pageUrl);
+      if (url.protocol === 'https:' || url.protocol === 'http:') { product.href = url.href;product.title = url.hostname.replace(/^www\./,'');product.hidden = false; }
+    } catch {}
     veil.querySelector('.library').addEventListener('click', () => {
       send({ type: 'CBM_OPEN', id:message.id }).then(closeDialog,error => showError(error.message));
     });
@@ -190,7 +196,7 @@
       if (e.key === 'Escape') { e.stopPropagation();closeDialog(); }
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault();e.stopPropagation();step(e.key === 'ArrowLeft' ? -1 : 1); }
       if (e.key === 'Tab') {
-        const items = [...veil.querySelectorAll('button:not([hidden])')];
+        const items = [...veil.querySelectorAll('button:not([hidden]),a[href]:not([hidden])')];
         const index = items.indexOf(root.activeElement);
         if (e.shiftKey && index === 0) { e.preventDefault();items.at(-1).focus(); }
         else if (!e.shiftKey && index === items.length - 1) { e.preventDefault();items[0].focus(); }
@@ -221,21 +227,77 @@
   const tracked = new Set();
   let frame = null;
   function schedule() { if (disposed) return;if (frame === null) frame = requestAnimationFrame(position); }
+  // The part of an image you can see: its box cut by the window and by every ancestor that clips overflow.
+  // Null when an ancestor hides it (a carousel slide or hover image faded to opacity 0).
+  function visibleBox(img) {
+    const rect = img.getBoundingClientRect();
+    const box = {top:Math.max(rect.top, 0), left:Math.max(rect.left, 0), bottom:Math.min(rect.bottom, innerHeight), right:Math.min(rect.right, innerWidth)};
+    for (let node = img.parentElement;node && node !== document.body && node !== document.documentElement;node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.opacity === '0' || style.visibility === 'hidden') return null;
+      const clipY = style.overflowY !== 'visible', clipX = style.overflowX !== 'visible';
+      if (clipX || clipY) {
+        const clip = node.getBoundingClientRect();
+        if (clipY) { box.top = Math.max(box.top, clip.top);box.bottom = Math.min(box.bottom, clip.bottom); }
+        if (clipX) { box.left = Math.max(box.left, clip.left);box.right = Math.min(box.right, clip.right); }
+      }
+      if (style.position === 'fixed') break;
+    }
+    return box;
+  }
+  // What's painted over this point of the image: another picture (a zoom view over thumbnails) hides it,
+  // a fixed or sticky bar (site header, cookie banner) returns its box. See-through layers in the page,
+  // like a link over a product card, don't count.
+  const HIDDEN = {bottom:Infinity};
+  function coverAt(x, y, img) {
+    for (const element of document.elementsFromPoint(x, y)) {
+      if (element === host) continue;
+      if (element === img || element.contains(img)) return null;
+      if (element instanceof HTMLImageElement || element instanceof HTMLVideoElement || element instanceof HTMLCanvasElement) return HIDDEN;
+      for (let node = element;node && node !== document.body;node = node.parentElement) {
+        const place = getComputedStyle(node).position;
+        if (place === 'fixed' || place === 'sticky') { if (!node.contains(img)) return node.getBoundingClientRect();break; }
+      }
+    }
+    return null;
+  }
   function position() {
     frame = null;
+    const placed = [];
     for (const [img, button] of visible) {
       if (!img.isConnected) { button.remove();visible.delete(img);continue; }
       const rect = img.getBoundingClientRect();
       const css = getComputedStyle(img);
-      const show = img.complete && img.naturalWidth > 0 && rect.width >= 64 && rect.height >= 64 && rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth && css.visibility !== 'hidden' && css.opacity !== '0';
-      button.hidden = !show;
-      button.style.display = show ? 'flex' : 'none';
-      if (show) {
-        button.style.top = `${Math.max(6, rect.top + 10)}px`;
-        button.style.left = `${Math.max(52, Math.min(innerWidth - 6, rect.right - 10))}px`;
-        button.style.transform = 'translateX(-100%)';
+      let show = img.complete && img.naturalWidth > 0 && rect.width >= 64 && rect.height >= 64 && css.visibility !== 'hidden' && css.opacity !== '0';
+      let box = show ? visibleBox(img) : null;
+      if (box) {
+        // Slide below a sticky header covering the corner instead of floating on top of it.
+        const cover = box.bottom > box.top && coverAt(Math.max(box.left, box.right - 28), box.top + 28, img);
+        if (cover) box.top = Math.max(box.top, cover.bottom);
       }
+      show = Boolean(box) && box.bottom - box.top >= 56 && box.right - box.left >= 56;
+      if (show) placed.push({img, button, x:Math.max(52, Math.min(innerWidth - 6, box.right - 10)), y:box.top + 10});
+      else { button.hidden = true;button.style.display = 'none'; }
     }
+    // Images stacked in one spot (carousel slides, hover swaps) would share a corner: keep the one on top.
+    const kept = [];
+    for (const spot of placed) {
+      const clash = kept.findIndex(other => Math.abs(other.x - spot.x) < 30 && Math.abs(other.y - spot.y) < 30);
+      if (clash < 0) { kept.push(spot);continue; }
+      const other = kept[clash];
+      const [winner, loser] = onTop(spot.img, other.img, spot.x - 18, spot.y + 18) ? [spot, other] : [other, spot];
+      kept[clash] = winner;loser.button.hidden = true;loser.button.style.display = 'none';
+    }
+    for (const {button, x, y} of kept) {
+      button.hidden = false;button.style.display = 'flex';
+      button.style.top = `${y}px`;button.style.left = `${x}px`;button.style.transform = 'translateX(-100%)';
+    }
+  }
+  function onTop(a, b, x, y) {
+    const hits = document.elementsFromPoint(x, y);
+    const ia = hits.indexOf(a), ib = hits.indexOf(b);
+    if (ia >= 0 || ib >= 0) return ib < 0 || (ia >= 0 && ia < ib);
+    return Boolean(b.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING); // Later in the page paints on top.
   }
   const intersection = new IntersectionObserver(entries => {
     if (disposed) return;

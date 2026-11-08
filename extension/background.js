@@ -1,5 +1,5 @@
 import { get, getAll, put, finishGeneration, enqueueGeneration, toggleLike } from './lib/db.js';
-import { safePageUrl } from './lib/model.js';
+import { safePageUrl, productUrlFor, productLink } from './lib/model.js';
 import {normalizeSettings} from './lib/settings.js';
 import {siteHostname,isSiteOff,siteMode,updateSiteList,SITE_POLICY_KEYS} from './lib/sites.js';
 import {comparisonOrder,comparisonPlace,stepTarget} from './lib/comparisons.js';
@@ -69,7 +69,7 @@ async function start(message,sender) {
     prompt = prompt.trimEnd() + profilePromptNote(profileList(stored).find(p => p.id === profileId));
     const record = {
       id:crypto.randomUUID(),createdAt:Date.now(),status:'pending',stage:'queued',
-      pageUrl,pageTitle:String(sender.tab.title || message.pageTitle || 'Untitled page').slice(0,300),
+      pageUrl,productUrl:productUrlFor(message.linkUrl,pageUrl),pageTitle:String(sender.tab.title || message.pageTitle || 'Untitled page').slice(0,300),
       imageUrl:String(message.imageUrl || '').slice(0,10000),imageAlt:String(message.imageAlt || '').slice(0,300),
       sourceTabId:sender.tab.id,model:settings.mode === 'mock' ? 'mock-original' : settings.model,
       costUsd:null,referenceIds:references.map(ref => ref.id),profileId,settings,prompt,
@@ -161,7 +161,7 @@ async function compareOnPage(message) {
   const place = comparisonPlace(comparisonOrder(inProfile(await getAll('generations'),profileOf(record))),record.id);
   try {
     return await chrome.tabs.sendMessage(tab.id, {
-      type: 'CBM_SHOW_COMPARISON', id: record.id, original, result, liked:Boolean(record.liked), model:record.model,
+      type: 'CBM_SHOW_COMPARISON', id: record.id, original, result, liked:Boolean(record.liked), model:record.model, pageUrl:productLink(record),
       ...place,
     }, { frameId: 0 });
   } catch {
