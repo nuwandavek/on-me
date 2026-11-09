@@ -60,7 +60,7 @@
     .veil { pointer-events:auto;position:fixed;inset:0;background:#181a176b;display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(5px);animation:appear .2s ease; }
     .dialog { width:min(820px,100%);max-height:calc(100dvh - 48px);overflow:auto;background:#f8f7f2;border-radius:16px;box-shadow:0 22px 100px #0003;font:14px/1.5 Arial,sans-serif; }
     header { display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:1px solid #dfdfd5; }
-    .brand { display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;letter-spacing:-.5px; } .brand svg { width:28px;height:28px;color:#d74730; }
+    .brand { display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;letter-spacing:-.5px; } .brand svg { width:28px;height:28px;color:#d74730; } .brand>span { font-family:OnMeWordmark,Georgia,serif;font-style:italic;font-weight:700;font-size:23px;letter-spacing:0;line-height:1; }
     .frame { position:relative;width:min(820px,100%);max-height:100%;display:flex; } .frame>.dialog { width:100%; } .step { position:absolute;top:50%;transform:translateY(-50%);z-index:1;width:36px;height:36px;border:0;border-radius:50%;background:#faf9f1d9;color:#30382a;display:grid;place-items:center;padding:0;cursor:pointer; } .step:hover { background:#fffaf2; } .step:disabled { opacity:.6;cursor:wait; } .step[hidden] { display:none; } .step svg { width:24px;height:24px;fill:currentColor; } .step.prev { left:10px; } .step.prev svg { transform:rotate(180deg); } .step.next { right:10px; } .header-end { display:flex;align-items:center;gap:10px; } .position { font-size:12px;color:#707267;font-variant-numeric:tabular-nums; } .close { width:32px;height:32px;border:0;background:transparent;border-radius:50%;color:#595b51;display:grid;place-items:center;padding:0; } .close svg { width:22px;height:22px;fill:currentColor; } .close:hover { background:#e9e8df; }
      
     .comparison { display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px 24px; } figure { margin:0;min-width:0; }
@@ -109,6 +109,17 @@
     noticeTimer = setTimeout(() => notice.remove(),7000);
   }
 
+  // The "on me." wordmark font (a 2.6 KB subset of Cormorant Garamond Bold Italic, OFL), embedded so a
+  // page's font rules can't block it. Registered on the page once, the first time a comparison opens.
+  const WORDMARK_FONT = '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';
+  function loadWordmark() {
+    try {
+      if ([...document.fonts].some(face => face.family === 'OnMeWordmark')) return;
+      const bytes = Uint8Array.from(atob(WORDMARK_FONT), c => c.charCodeAt(0));
+      document.fonts.add(new FontFace('OnMeWordmark', bytes.buffer, {style:'italic', weight:'700'}));
+    } catch {} // Falls back to an italic serif.
+  }
+
   async function tryOn(img, button) {
     if (running.has(img)) {
       send({type:'CBM_PANEL_OPEN'}).then(response => {
@@ -138,6 +149,7 @@
     const stepping = Boolean(currentDialog);
     if (stepping) { currentDialog.remove();currentDialog = null; }
     else lastFocus = root.activeElement || document.activeElement;
+    loadWordmark();
     const veil = document.createElement('div');
     veil.className = 'veil';
     if (stepping) veil.style.animation = 'none';
